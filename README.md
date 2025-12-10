@@ -33,7 +33,13 @@ Web 端数据库设计工具，支持 AI 辅助设计和数据库逆向工程。
 
 **前端 (.env):**
 ```
-VITE_AI_API_KEY=your_dashscope_api_key
+VITE_AI_API_KEY=your_api_key
+VITE_AI_API_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+VITE_AI_MODEL_TEXT=qwen3-max
+VITE_AI_MODEL_VISION=qwen3-vl-plus
+
+# 注意: 本项目默认使用通义千问的文字模型与视觉模型，也兼容 OpenAI 标准格式接口。
+# 如使用 OpenAI，请将 URL 改为 https://api.openai.com/v1/chat/completions 并修改模型名称。
 ```
 
 **后端 (server/.env):**
@@ -70,6 +76,17 @@ npm run dev
 cd server
 npm start
 ```
+
+## 🤝 团队协作
+
+本工具支持简单的团队共享模式：
+
+1.  **集中部署**: 推荐将本项目部署在局域网服务器或云服务器上（只需部署一套）。
+2.  **团队访问**: 团队成员无需安装任何环境，直接通过浏览器访问服务器地址即可共同协作。
+3.  **注意事项**: 
+    *   当前采用**覆盖式保存**机制（Last Write Wins）。
+    *   建议在保存前查看**历史版本**，避免覆盖他人工作。
+    *   利用内置的**版本管理**功能，任何重大修改后系统会自动生成新版本，方便回滚。
 
 ## 贡献
 

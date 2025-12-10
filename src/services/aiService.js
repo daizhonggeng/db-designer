@@ -1,10 +1,12 @@
 
 const API_KEY = import.meta.env.VITE_AI_API_KEY;
-const API_ENDPOINT = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+const API_ENDPOINT = import.meta.env.VITE_AI_API_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+const MODEL_TEXT = import.meta.env.VITE_AI_MODEL_TEXT || "qwen3-max";
+const MODEL_VISION = import.meta.env.VITE_AI_MODEL_VISION || "qwen3-vl-plus";
 
 export async function generateSchema(description, imageBase64 = null) {
   const isVision = !!imageBase64;
-  const MODEL_NAME = isVision ? "qwen3-vl-plus" : "qwen3-max";
+  const MODEL_NAME = isVision ? MODEL_VISION : MODEL_TEXT;
 
   const systemPrompt = `
 You are a database architect. Your task is to generate a database schema based on the user's description${isVision ? ' and the provided ER diagram/image' : ''}.
@@ -50,6 +52,23 @@ IMPORTANT: You MUST provide meaningful comments in Chinese (Simplified) for ever
     messages.push({ role: "user", content: `Design a database schema for: ${description}` });
   }
 
+  // Check if we should enable thinking (Aliyun/DeepSeek feature)
+  // For standard OpenAI, we might want to remove extra_body to avoid errors
+  const isQwen = MODEL_NAME.includes('qwen');
+
+  const body = {
+    model: MODEL_NAME,
+    messages: messages,
+    stream: true
+  };
+
+  if (isQwen) {
+    body.extra_body = {
+      enable_thinking: true,
+      thinking_budget: 16384
+    };
+  }
+
   try {
     const response = await fetch(API_ENDPOINT, {
       method: "POST",
@@ -57,15 +76,7 @@ IMPORTANT: You MUST provide meaningful comments in Chinese (Simplified) for ever
         "Content-Type": "application/json",
         "Authorization": `Bearer ${API_KEY}`
       },
-      body: JSON.stringify({
-        model: MODEL_NAME,
-        messages: messages,
-        stream: true, // Enable streaming for reasoning
-        extra_body: {
-          enable_thinking: true,
-          thinking_budget: 16384 // Adjusted budget
-        }
-      })
+      body: JSON.stringify(body)
     });
 
     if (!response.ok) {
