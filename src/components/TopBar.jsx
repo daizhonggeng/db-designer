@@ -10,6 +10,7 @@ import ReverseEngineeringModal from './ReverseEngineeringModal';
 import Toast from './Toast';
 import * as htmlToImage from 'html-to-image';
 import { API_BASE_URL } from '../config';
+import Logo from './Logo';
 
 export default function TopBar({ projectId }) {
     const navigate = useNavigate();
@@ -183,13 +184,13 @@ export default function TopBar({ projectId }) {
                     overflow: 'visible' // Allow dropdown to show
                 }}
             >
-                <h2
-                    style={{ color: 'var(--accent-primary)', fontSize: '1rem', marginRight: 'var(--spacing-sm)', cursor: 'pointer', flexShrink: 0 }}
+                <div
+                    style={{ marginRight: 'var(--spacing-md)', cursor: 'pointer' }}
                     onClick={() => navigate('/dashboard')}
                     title="返回仪表盘"
                 >
-                    ← DB Designer
-                </h2>
+                    <Logo size={24} showText={true} />
+                </div>
 
                 <button className="btn" onClick={toggleTheme} title={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}>
                     {theme === 'dark' ? '☀️' : '🌙'}
