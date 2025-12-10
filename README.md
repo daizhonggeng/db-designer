@@ -6,25 +6,25 @@ Web 端数据库设计工具，支持 AI 辅助设计和数据库逆向工程。
 
 *   **可视化设计**: 拖拽创建表，直观管理字段和关系。
 
-    <img width="100%" alt="可视化设计预览 1" src="https://github.com/user-attachments/assets/81785b67-3936-4be4-b424-3643c8873929" />
-    <br/>
-    <img width="100%" alt="可视化设计预览 2" src="https://github.com/user-attachments/assets/3554f12f-faac-4e7f-8105-b8be45d10ad0" />
-
 *   **AI 智能助手**: 通过自然语言描述生成表结构，或上传图片生成表结构。
+    
+    <img width="100%" alt="AI 助手图1" src="https://github.com/user-attachments/assets/81785b67-3936-4be4-b424-3643c8873929" />
+    <br/>
+    <img width="100%" alt="AI 助手图2" src="https://github.com/user-attachments/assets/3554f12f-faac-4e7f-8105-b8be45d10ad0" />
 
 *   **数据库逆向工程**:
 
-    <img width="100%" alt="逆向工程概览" src="https://github.com/user-attachments/assets/affb1f49-8cc4-4672-a3c0-b4d4d7bfa061" />
-
     *   **SQL 脚本导入**: 支持通过执行 SQL 脚本并粘贴 JSON 结果来导入 MySQL, Oracle, PostgreSQL 结构。
-    
-        <img width="100%" alt="脚本导入" src="https://github.com/user-attachments/assets/6d1d655c-6ed7-416f-abb6-9bf018fd8621" />
+        
+        <img width="100%" alt="脚本导入图" src="https://github.com/user-attachments/assets/affb1f49-8cc4-4672-a3c0-b4d4d7bfa061" />    
 
     *   **直连导入**: 支持直接连接 PostgreSQL 数据库进行导入，目前默认是 public 模式。
-    
-        <img width="100%" alt="直连导入" src="https://github.com/user-attachments/assets/0f33d465-ce63-4bc5-8f65-345940b5d74e" />
+        
+        <img width="100%" alt="直连导入图" src="https://github.com/user-attachments/assets/6d1d655c-6ed7-416f-abb6-9bf018fd8621" />
 
 *   **版本管理**: 自动保存历史版本，支持回滚。
+    
+    <img width="100%" alt="版本管理图" src="https://github.com/user-attachments/assets/0f33d465-ce63-4bc5-8f65-345940b5d74e" />
 *   **导出功能**: 支持导出 SQL 文件、PNG 图片、SVG 矢量图。
 *   **多主题**: 支持亮色/暗色模式。
 
