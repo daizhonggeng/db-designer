@@ -15,25 +15,11 @@ import * as htmlToImage from 'html-to-image';
 import { getStoredUser } from '../utils/storage';
 import { validateSchema } from '../utils/schema';
 import Logo from './Logo';
+import Icon from './Icon';
 import { downloadProject, parseProjectFile } from '../utils/projectData';
 
-function DropdownPanel({ children }) {
-    return (
-        <div className="glass" style={{
-            position: 'absolute',
-            top: 'calc(100% + 10px)',
-            left: 0,
-            padding: '0.45rem',
-            borderRadius: '18px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.35rem',
-            minWidth: '170px',
-            zIndex: 1200,
-        }}>
-            {children}
-        </div>
-    );
+function DropdownPanel({ children, right = false }) {
+    return <div className={`dropdown-panel ${right ? 'is-right' : ''}`}>{children}</div>;
 }
 
 export default function TopBar({ projectId, session, onBack, onToggleSidebar }) {
@@ -143,7 +129,7 @@ export default function TopBar({ projectId, session, onBack, onToggleSidebar }) 
 
         try {
             const options = {
-                backgroundColor: theme === 'light' ? '#f7f6ef' : '#07141b',
+                backgroundColor: theme === 'light' ? '#f7f8fc' : '#171e2a',
                 width,
                 height,
                 style: {
@@ -169,212 +155,49 @@ export default function TopBar({ projectId, session, onBack, onToggleSidebar }) 
         }
     };
 
-    return (
-        <>
-            <div className="topbar-shell" ref={menuRef}>
-                <div className="topbar-main glass">
-                    <div className="topbar-row">
-                        <div className="topbar-brand">
-                            <button className="brand-back" onClick={onBack} title="返回工作台" aria-label="返回工作台"><Logo size={26} showText={false} /></button>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.28rem' }}>
-                                <button className="project-title" title={getStoredUser()?.id === session.project.user_id ? '重命名项目' : session.project.name} onClick={() => { if (getStoredUser()?.id === session.project.user_id) { setNameInput(session.project.name); setRenameOpen(true); } }}>{session.project.name}</button>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flexWrap: 'wrap' }}>
-                                    <span className={`save-status ${session.status === 'error' || session.status === 'conflict' ? 'is-error' : ''}`} role="status">{session.recovery ? '等待恢复草稿' : session.status === 'saving' ? '正在保存…' : session.status === 'conflict' ? '保存冲突' : session.status === 'error' ? (session.draftError ? '保存失败' : '保存失败 · 草稿已保留') : session.dirty ? (session.autoSave ? '等待自动保存…' : '有未保存的修改') : '✓ 已保存'}{!session.dirty && session.project.updated_at ? ` · ${new Date(session.project.updated_at.replace(' ', 'T') + 'Z').toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : ''}</span>
-                                    <span className="project-badge" style={{
-                                        color: validation.summary.isValid ? 'var(--accent-success)' : 'var(--accent-danger)',
-                                        borderColor: validation.summary.isValid ? 'rgba(116, 221, 152, 0.24)' : 'rgba(255, 122, 112, 0.24)',
-                                        background: validation.summary.isValid ? 'rgba(116, 221, 152, 0.12)' : 'rgba(255, 122, 112, 0.12)',
-                                    }}>
-                                        {validation.summary.isValid ? '结构健康' : `${validation.summary.errorCount} 错误`}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-                            <button className="btn" onClick={onToggleSidebar} title="显示或隐藏数据表导航">☰ 导航</button>
-                            <label className="autosave-toggle"><input type="checkbox" checked={session.autoSave} onChange={event => session.setAutoSave(event.target.checked)} />自动保存</label>
-                            <button className="btn" onClick={toggleTheme} title={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}>
-                                {theme === 'dark' ? '☀️ 亮色' : '🌙 暗色'}
-                            </button>
-                            <button className="btn" onClick={() => setShowHistory(true)}>
-                                🕒 历史
-                            </button>
-                            <button className="btn" onClick={() => setShowValidationModal(true)}>
-                                🩺 体检
-                            </button>
-                            <button className="btn" onClick={() => setShowDiffModal(true)}>
-                                Δ 变更对比
-                            </button>
-                            <button className="btn btn-primary" onClick={() => session.save(true)} disabled={session.status === 'saving' || !!session.recovery || session.status === 'conflict'} title="保存当前设计并创建历史版本（Ctrl+S）">
-                                {session.status === 'saving' ? '保存中…' : '保存版本'}
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="topbar-row">
-                        <div className="topbar-stats">
-                            <span className="topbar-badge">表 {stats.tableCount}</span>
-                            <span className="topbar-badge">字段 {stats.fieldCount}</span>
-                            <span className="topbar-badge">索引 {stats.indexCount}</span>
-                            <span className="topbar-badge">约束 {stats.constraintCount}</span>
-                            <span className="topbar-badge">关系 {state.relationships.length}</span>
-                            <span className="topbar-badge">{dbDialect.toUpperCase()}</span>
-                        </div>
-
-                        <div className="topbar-groups">
-                            <div className="topbar-group">
-                                <button className="btn" onClick={() => dispatch({ type: 'UNDO' })} disabled={state.past.length === 0} title="撤销 (Ctrl+Z)">
-                                    ↩️
-                                </button>
-                                <button className="btn" onClick={() => dispatch({ type: 'REDO' })} disabled={state.future.length === 0} title="重做 (Ctrl+Y)">
-                                    ↪️
-                                </button>
-                            </div>
-
-                            <div className="topbar-group" style={{ position: 'relative' }}>
-                                <button className="btn" onClick={() => setMenu(menu === 'add' ? null : 'add')}>
-                                    ➕ 新增
-                                </button>
-                                {menu === 'add' && (
-                                    <DropdownPanel>
-                                        <button className="btn" onClick={() => { dispatch({ type: 'ADD_TABLE' }); setMenu(null); }} style={{ justifyContent: 'flex-start' }}>
-                                            + 新建表
-                                        </button>
-                                        <button className="btn" onClick={() => { dispatch({ type: 'ADD_BOOKMARK' }); setMenu(null); }} style={{ justifyContent: 'flex-start' }}>
-                                            + 新建书签
-                                        </button>
-                                    </DropdownPanel>
-                                )}
-                            </div>
-
-                            <div className="topbar-group" style={{ position: 'relative' }}>
-                                <button className="btn" onClick={() => setMenu(menu === 'layout' ? null : 'layout')}>
-                                    🧩 布局
-                                </button>
-                                {menu === 'layout' && (
-                                    <DropdownPanel>
-                                        <button className="btn" onClick={() => handleLayout('LR')} style={{ justifyContent: 'flex-start' }}>➡️ 从左到右</button>
-                                        <button className="btn" onClick={() => handleLayout('TB')} style={{ justifyContent: 'flex-start' }}>⬇️ 从上到下</button>
-                                        <button className="btn" onClick={() => handleLayout('RL')} style={{ justifyContent: 'flex-start' }}>⬅️ 从右到左</button>
-                                        <button className="btn" onClick={() => handleLayout('BT')} style={{ justifyContent: 'flex-start' }}>⬆️ 从下到上</button>
-                                    </DropdownPanel>
-                                )}
-                            </div>
-
-                            <div className="topbar-group" style={{ position: 'relative' }}>
-                                <button className="btn" onClick={() => setMenu(menu === 'db' ? null : 'db')}>
-                                    🗄️ 方言
-                                </button>
-                                {menu === 'db' && (
-                                    <DropdownPanel>
-                                        {['mysql', 'postgresql', 'oracle'].map((dialect) => (
-                                            <button
-                                                key={dialect}
-                                                className="btn"
-                                                onClick={() => {
-                                                    setDbDialect(dialect);
-                                                    setMenu(null);
-                                                }}
-                                                style={{ justifyContent: 'space-between' }}
-                                            >
-                                                <span>{dialect === 'mysql' ? 'MySQL' : dialect === 'postgresql' ? 'PostgreSQL' : 'Oracle'}</span>
-                                                {dbDialect === dialect ? '✓' : ''}
-                                            </button>
-                                        ))}
-                                    </DropdownPanel>
-                                )}
-                            </div>
-
-                            <div className="topbar-group">
-                                <button className="btn" onClick={() => setShowRevEng(true)}>
-                                    📥 数据库导入
-                                </button>
-                                <button className="btn" onClick={() => setShowPDMImport(true)} title="导入 PowerDesigner 物理模型">
-                                    📥 导入 PDM
-                                </button>
-                                <button className="btn" onClick={() => setShowPreset(true)} disabled={session.status === 'saving' || !!session.recovery || session.status === 'conflict'}>
-                                    📋 规范预设{state.designPreset?.rules ? ' ✓' : ''}
-                                </button>
-                                <button
-                                    className="btn"
-                                    onClick={() => setShowAI(true)}
-                                    style={{
-                                        background: 'linear-gradient(135deg, var(--accent-secondary), var(--accent-primary))',
-                                        color: '#04151a',
-                                        borderColor: 'transparent',
-                                        fontWeight: 700,
-                                    }}
-                                >
-                                    ✨ AI 设计
-                                </button>
-                            </div>
-
-                            <div className="topbar-group" style={{ position: 'relative' }}>
-                                <button className="btn" onClick={() => setMenu(menu === 'export' ? null : 'export')}>
-                                    📤 导出
-                                </button>
-                                {menu === 'export' && (
-                                    <DropdownPanel>
-                                        <button className="btn" onClick={() => { downloadProject(session.project.name, state); setMenu(null); }} style={{ justifyContent: 'flex-start' }}>JSON 项目备份</button>
-                                        <button className="btn" onClick={() => { fileInputRef.current.click(); setMenu(null); }} style={{ justifyContent: 'flex-start' }}>导入 JSON 备份</button>
-                                        <button className="btn" onClick={() => { setShowExportModal(true); setMenu(null); }} style={{ justifyContent: 'flex-start' }}>
-                                            SQL 导出
-                                        </button>
-                                        <button className="btn" onClick={() => { handleExport('png'); setMenu(null); }} style={{ justifyContent: 'flex-start' }}>
-                                            PNG 快照
-                                        </button>
-                                        <button className="btn" onClick={() => { handleExport('svg'); setMenu(null); }} style={{ justifyContent: 'flex-start' }}>
-                                            SVG 矢量图
-                                        </button>
-                                    </DropdownPanel>
-                                )}
-                            </div>
-                        </div>
-                    </div>
+    const saveLabel = session.recovery ? '等待恢复草稿' : session.status === 'saving' ? '正在保存…' : session.status === 'conflict' ? '保存冲突' : session.status === 'error' ? '保存失败' : session.dirty ? (session.autoSave ? '等待自动保存' : '有未保存的修改') : '所有修改已保存';
+    return <>
+        <div className="topbar-shell" ref={menuRef}>
+            <header className="editor-header">
+                <div className="editor-identity">
+                    <button className="icon-button" onClick={onBack} title="返回工作台" aria-label="返回工作台"><Icon name="back" /></button>
+                    <Logo size={27} showText={false} /><span className="header-divider" />
+                    <div><div className="editor-project-name"><button className="project-title" title={getStoredUser()?.id === session.project.user_id ? '重命名项目' : session.project.name} onClick={() => { if (getStoredUser()?.id === session.project.user_id) { setNameInput(session.project.name); setRenameOpen(true); } }}>{session.project.name}</button><Icon name="down" size={12} className="project-name-edit" /></div><span className={`save-status ${['error', 'conflict'].includes(session.status) ? 'is-error' : ''}`} role="status">{saveLabel}</span></div>
                 </div>
+                <div className="editor-header-actions">
+                    <label className="autosave-toggle"><input type="checkbox" checked={session.autoSave} onChange={event => session.setAutoSave(event.target.checked)} />自动保存</label>
+                    <button className="icon-button" onClick={toggleTheme} title={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} /></button>
+                    <button className="btn btn-ghost history-button" onClick={() => setShowHistory(true)}><Icon name="history" size={16} />历史版本</button>
+                    <button className="btn btn-primary" onClick={() => session.save(true)} disabled={session.status === 'saving' || !!session.recovery || session.status === 'conflict'} title="保存当前设计并创建历史版本（Ctrl+S）"><Icon name="check" size={15} />{session.status === 'saving' ? '保存中…' : '保存版本'}</button>
+                </div>
+            </header>
+            <div className="editor-toolbar">
+                <div className="toolbar-group"><button className="icon-button" onClick={onToggleSidebar} title="显示或隐藏数据表导航" aria-label="切换数据表导航"><Icon name="panel" size={17} /></button><span className="toolbar-divider" /><button className="icon-button" onClick={() => dispatch({ type: 'UNDO' })} disabled={!state.past.length} title="撤销 (Ctrl+Z)"><Icon name="undo" size={16} /></button><button className="icon-button" onClick={() => dispatch({ type: 'REDO' })} disabled={!state.future.length} title="重做 (Ctrl+Y)"><Icon name="redo" size={16} /></button></div>
+                <span className="toolbar-divider" />
+                <div className="toolbar-group"><button className="btn btn-soft" onClick={() => dispatch({ type: 'ADD_TABLE' })}><Icon name="plus" size={15} />数据表</button><button className="icon-button" onClick={() => setMenu(menu === 'add' ? null : 'add')} title="更多新增操作"><Icon name="down" size={12} /></button>{menu === 'add' && <DropdownPanel><button className="btn" onClick={() => { dispatch({ type: 'ADD_TABLE' }); setMenu(null); }}><Icon name="table" size={15} />新建数据表</button><button className="btn" onClick={() => { dispatch({ type: 'ADD_BOOKMARK' }); setMenu(null); }}><Icon name="bookmark" size={15} />新建分组书签</button></DropdownPanel>}</div>
+                <div className="toolbar-group"><button className="btn btn-ghost" onClick={() => setMenu(menu === 'layout' ? null : 'layout')}><Icon name="layout" size={15} />自动布局<Icon name="down" size={11} /></button>{menu === 'layout' && <DropdownPanel>{[['LR','从左到右'],['TB','从上到下'],['RL','从右到左'],['BT','从下到上']].map(([direction, label]) => <button className="btn" key={direction} onClick={() => handleLayout(direction)}>{label}</button>)}</DropdownPanel>}</div>
+                <span className="toolbar-divider" />
+                <select className="toolbar-select" aria-label="SQL 数据库类型" value={dbDialect} onChange={event => setDbDialect(event.target.value)}><option value="mysql">MySQL</option><option value="postgresql">PostgreSQL</option><option value="oracle">Oracle</option></select>
+                <button className="btn btn-ghost" onClick={() => setShowRevEng(true)}><Icon name="upload" size={15} />数据库导入</button>
+                <button className="btn btn-ghost" onClick={() => setShowPDMImport(true)} title="导入 PowerDesigner 物理模型"><Icon name="upload" size={15} />导入 PDM</button>
+                <button className="btn btn-ghost" onClick={() => setShowPreset(true)} disabled={session.status === 'saving' || !!session.recovery || session.status === 'conflict'}><Icon name="file" size={15} />规范预设{state.designPreset?.rules ? ' ✓' : ''}</button>
+                <button className="btn btn-ghost btn-ai" onClick={() => setShowAI(true)}><Icon name="sparkle" size={16} />AI 辅助</button>
+                <span className="toolbar-spacer" /><span className="toolbar-note">{stats.tableCount} 张表 · {stats.fieldCount} 个字段</span>
+                <button className="btn btn-ghost" onClick={() => setShowValidationModal(true)} title="检查结构"><Icon name="shield" size={15} />{validation.summary.isValid ? '结构检查' : `${validation.summary.errorCount} 个问题`}</button>
+                <button className="icon-button" onClick={() => setShowDiffModal(true)} title="结构变更对比"><Icon name="diff" size={16} /></button>
+                <div className="toolbar-group"><button className="btn btn-ghost" onClick={() => setMenu(menu === 'export' ? null : 'export')}><Icon name="download" size={15} />导出<Icon name="down" size={11} /></button>{menu === 'export' && <DropdownPanel right><span className="dropdown-label">结构与图片</span><button className="btn" onClick={() => { setShowExportModal(true); setMenu(null); }}><Icon name="file" size={15} />SQL 文件</button><button className="btn" onClick={() => { handleExport('png'); setMenu(null); }}>PNG 图片</button><button className="btn" onClick={() => { handleExport('svg'); setMenu(null); }}>SVG 矢量图</button><span className="menu-divider" /><span className="dropdown-label">完整项目</span><button className="btn" onClick={() => { downloadProject(session.project.name, state); setMenu(null); }}>JSON 项目备份</button><button className="btn" onClick={() => { fileInputRef.current.click(); setMenu(null); }}>导入 JSON 备份</button></DropdownPanel>}</div>
             </div>
-
-            <input type="file" ref={fileInputRef} accept=".json,application/json" onChange={importBackup} hidden />
-            {renameOpen && <div className="modal-overlay" onClick={() => setRenameOpen(false)}><form className="modal-content glass compact-modal" onClick={event => event.stopPropagation()} onSubmit={async event => { event.preventDefault(); if (nameInput.trim() && await session.save(false, nameInput.trim())) setRenameOpen(false); }}><h2>重命名项目</h2><label className="form-label">项目名称<input className="ui-input" aria-label="项目名称" value={nameInput} onChange={event => setNameInput(event.target.value)} autoFocus required maxLength={100} /></label><div className="session-actions"><button className="btn" type="button" onClick={() => setRenameOpen(false)}>取消</button><button className="btn btn-primary" disabled={session.status === 'saving' || !nameInput.trim()}>保存名称</button></div></form></div>}
-            {showAI && <AIModal onClose={() => setShowAI(false)} />}
-            {showPreset && <ProjectPresetModal initialPreset={state.designPreset} onSave={savePreset} onClose={() => setShowPreset(false)} />}
-            {showPDMImport && <PDMImportModal onClose={() => setShowPDMImport(false)} onImported={message => setToast({ message, type: 'success' })} />}
-            {showHistory && (
-                <VersionHistoryModal
-                    projectId={projectId}
-                    onClose={() => setShowHistory(false)}
-                    onRestore={handleRestoreVersion}
-                />
-            )}
-            {showExportModal && (
-                <ExportModal
-                    schema={state}
-                    onClose={() => setShowExportModal(false)}
-                />
-            )}
-            {showRevEng && <ReverseEngineeringModal onClose={() => setShowRevEng(false)} />}
-            {showValidationModal && (
-                <SchemaValidationModal
-                    schema={state}
-                    onClose={() => setShowValidationModal(false)}
-                />
-            )}
-            {showDiffModal && (
-                <SchemaDiffModal
-                    projectId={projectId}
-                    schema={state}
-                    onClose={() => setShowDiffModal(false)}
-                />
-            )}
-
-            {(toast || session.notice) && (
-                <Toast
-                    message={toast?.message || session.notice}
-                    type={toast?.type || 'success'}
-                    onClose={() => { setToast(null); session.setNotice(''); }}
-                />
-            )}
-        </>
-    );
+        </div>
+        <input type="file" ref={fileInputRef} accept=".json,application/json" onChange={importBackup} hidden />
+        {renameOpen && <div className="modal-overlay" onClick={() => setRenameOpen(false)}><form className="modal-content compact-modal" onClick={event => event.stopPropagation()} onSubmit={async event => { event.preventDefault(); if (nameInput.trim() && await session.save(false, nameInput.trim())) setRenameOpen(false); }}><h2>重命名项目</h2><label className="form-label">项目名称<input className="ui-input" aria-label="项目名称" value={nameInput} onChange={event => setNameInput(event.target.value)} autoFocus required maxLength={100} /></label><div className="modal-footer"><button className="btn" type="button" onClick={() => setRenameOpen(false)}>取消</button><button className="btn btn-primary" disabled={session.status === 'saving' || !nameInput.trim()}>保存名称</button></div></form></div>}
+        {showAI && <AIModal onClose={() => setShowAI(false)} />}
+        {showPreset && <ProjectPresetModal initialPreset={state.designPreset} onSave={savePreset} onClose={() => setShowPreset(false)} />}
+        {showPDMImport && <PDMImportModal onClose={() => setShowPDMImport(false)} onImported={message => setToast({ message, type: 'success' })} />}
+        {showHistory && <VersionHistoryModal projectId={projectId} onClose={() => setShowHistory(false)} onRestore={handleRestoreVersion} />}
+        {showExportModal && <ExportModal schema={state} onClose={() => setShowExportModal(false)} />}
+        {showRevEng && <ReverseEngineeringModal onClose={() => setShowRevEng(false)} />}
+        {showValidationModal && <SchemaValidationModal schema={state} onClose={() => setShowValidationModal(false)} />}
+        {showDiffModal && <SchemaDiffModal projectId={projectId} schema={state} onClose={() => setShowDiffModal(false)} />}
+        {(toast || session.notice) && <Toast message={toast?.message || session.notice} type={toast?.type || 'success'} onClose={() => { setToast(null); session.setNotice(''); }} />}
+    </>;
 }

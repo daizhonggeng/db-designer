@@ -8,13 +8,14 @@ import useProjectSession from '../hooks/useProjectSession';
 import TopBar from './TopBar';
 import Canvas from './Canvas';
 import Sidebar from './Sidebar';
+import Icon from './Icon';
 
 function ProjectWorkspace({ initialProject }) {
     const navigate = useNavigate();
     const { state, dispatch } = useSchema();
     const session = useProjectSession(initialProject, state);
     const canvasRef = useRef(null);
-    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 650);
 
     const back = async () => {
         if (session.dirty && !await session.save()) return;
@@ -44,6 +45,7 @@ function ProjectWorkspace({ initialProject }) {
                 {sidebarOpen && <Sidebar onLocateTable={id => canvasRef.current?.focusOnTable(id)} />}
                 <Canvas ref={canvasRef} />
             </div>
+            <footer className="editor-footer"><span><Icon name="database" size={11} />{state.tables.length} 张数据表 · {state.relationships.length} 条关系</span><span>双击表头编辑 · 拖动空白处移动画布</span></footer>
         </div>
     );
 }

@@ -1,0 +1,46 @@
+import React from 'react';
+
+const paths = {
+    plus: 'M12 5v14M5 12h14',
+    close: 'm6 6 12 12M6 18 18 6',
+    arrow: 'M5 12h14m-5-5 5 5-5 5',
+    back: 'M19 12H5m5-5-5 5 5 5',
+    chevron: 'm9 5 7 7-7 7',
+    down: 'm6 9 6 6 6-6',
+    search: 'M21 21l-5-5M10.5 18a7.5 7.5 0 1 0 0-15 7.5 7.5 0 0 0 0 15Z',
+    grid: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
+    table: 'M3 4h18v16H3zM3 9h18M9 9v11',
+    folder: 'M3 7V5a1 1 0 0 1 1-1h6l2 3h8a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7Z',
+    users: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M16 3a4 4 0 0 1 0 8M22 21v-2a4 4 0 0 0-3-3.87M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
+    history: 'M3 11a9 9 0 1 1 2.6 7M3 4v7h7M12 7v5l3 2',
+    upload: 'M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5',
+    download: 'M12 3v13m-5-5 5 5 5-5M4 16v5h16v-5',
+    undo: 'M3 10h11a6 6 0 0 1 0 12M3 10l5-5M3 10l5 5',
+    redo: 'M21 10H10a6 6 0 0 0 0 12m11-12-5-5m5 5-5 5',
+    layout: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
+    panel: 'M3 3h18v18H3zM9 3v18',
+    fit: 'M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6',
+    minus: 'M5 12h14',
+    sun: 'M12 3V1m0 22v-2M3 12H1m22 0h-2M4.2 4.2 2.8 2.8m18.4 18.4-1.4-1.4M4.2 19.8l-1.4 1.4M21.2 2.8l-1.4 1.4M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0Z',
+    moon: 'M21 12.8A9 9 0 0 1 11.2 3 9 9 0 1 0 21 12.8Z',
+    sparkle: 'm12 3 2.6 6.4L21 12l-6.4 2.6L12 21l-2.6-6.4L3 12l6.4-2.6L12 3ZM20 2v4m-2-2h4',
+    key: 'M8 14a5 5 0 1 1 3.6-1.6L21 3m-4 4 3 3m-6-3 3 3',
+    link: 'M10 13a5 5 0 0 0 7 .1l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7-.1l-3 3a5 5 0 0 0 7 7l2-2',
+    check: 'm5 12 4 4L19 6',
+    shield: 'm12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Zm-4 9 3 3 5-6',
+    file: 'M14 2H5v20h14V7l-5-5ZM14 2v6h5M8 13h8M8 17h6',
+    copy: 'M9 9h12v12H9zM15 9V3H3v12h6',
+    trash: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7',
+    edit: 'm16 3 5 5-12 12-6 1 1-6L16 3Zm-3 3 5 5',
+    database: 'M20 6c0 2.2-3.6 4-8 4s-8-1.8-8-4 3.6-4 8-4 8 1.8 8 4ZM4 6v6c0 2.2 3.6 4 8 4s8-1.8 8-4V6M4 12v6c0 2.2 3.6 4 8 4s8-1.8 8-4v-6',
+    logout: 'M9 3H3v18h6M9 12h12m-5-5 5 5-5 5',
+    eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
+    locate: 'M12 2v4m0 12v4M2 12h4m12 0h4M19 12a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z',
+    diff: 'M8 3H3v18h5M16 3h5v18h-5M8 9h8m-4-4v8M8 18h8',
+    bookmark: 'M5 3h14v19l-7-5-7 5V3Z',
+    info: 'M12 11v6m0-10v.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z',
+};
+
+export default function Icon({ name, size = 18, className = '', ...props }) {
+    return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`icon ${className}`} {...props}><path d={paths[name] || paths.table} /></svg>;
+}

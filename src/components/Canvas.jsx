@@ -4,6 +4,7 @@ import { useSchema } from '../store/schemaStore';
 import TableNode from './TableNode';
 import BookmarkNode from './BookmarkNode';
 import ContextMenu from './ContextMenu';
+import Icon from './Icon';
 import { createOrderExample } from '../utils/projectData';
 import { fitViewport, canvasPoint } from '../utils/canvasViewport';
 
@@ -343,7 +344,7 @@ const Canvas = forwardRef((props, ref) => {
         const colIndex = table.columns.findIndex(c => c.id === colId);
         const measured = measurements[tableId];
         const yOffset = measured?.columnOffsets[colId] ?? (145 + colIndex * 44);
-        const width = measured?.width || table.width || 360;
+        const width = measured?.width || table.width || 320;
         return { x: table.position.x, y: table.position.y + yOffset, width };
     };
 
@@ -355,17 +356,7 @@ const Canvas = forwardRef((props, ref) => {
     return (
         <div
             ref={containerRef}
-            className="canvas glass"
-            style={{
-                flex: 1,
-                position: 'relative',
-                overflow: 'hidden',
-                background: 'linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015)), rgba(3, 12, 18, 0.5)',
-                outline: 'none',
-                borderRadius: '28px',
-                border: '1px solid var(--glass-border)',
-                boxShadow: 'var(--shadow-lg)'
-            }}
+            className="canvas"
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
@@ -384,44 +375,11 @@ const Canvas = forwardRef((props, ref) => {
             )}
 
             {state.tables.length === 0 && <div className="canvas-empty" onMouseDown={event => event.stopPropagation()}>
-                <span className="empty-icon">▦</span><h2>从第一张表开始设计</h2><p>添加数据表后，双击表头编辑字段。<br />拖动字段旁的连接点，可以建立表之间的关系。</p>
+                <span className="empty-icon"><Icon name="table" size={25} /></span><h2>从第一张表开始设计</h2><p>添加数据表后，双击表头编辑字段。<br />拖动字段旁的连接点，可以建立表之间的关系。</p>
                 <div className="session-actions"><button className="btn btn-primary" onClick={() => dispatch({ type: 'ADD_TABLE' })}>+ 添加第一张表</button><button className="btn" onClick={() => dispatch({ type: 'IMPORT_SCHEMA', payload: createOrderExample() })}>载入订单示例</button></div>
             </div>}
-            <div style={{
-                position: 'absolute',
-                top: '16px',
-                right: '18px',
-                zIndex: 80,
-                display: 'flex',
-                gap: '0.5rem',
-                flexWrap: 'wrap',
-                justifyContent: 'flex-end'
-            }}>
-                <span className="project-badge">双击表头编辑</span>
-                <span className="project-badge">右键菜单</span>
-                <span className="project-badge">F 显示全部 · Ctrl+S 保存版本</span>
-            </div>
-
-            {/* Zoom Controls */}
-            <div style={{
-                position: 'absolute',
-                bottom: '20px',
-                right: '20px',
-                zIndex: 100,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-                background: 'rgba(9, 25, 34, 0.84)',
-                padding: '10px',
-                borderRadius: '18px',
-                border: '1px solid var(--glass-border)',
-                boxShadow: 'var(--shadow-sm)'
-            }}>
-                <button className="btn" onClick={fitView} title="显示全部数据表（F）" aria-label="适应画布">⊡</button>
-                <button className="btn" onClick={zoomIn} aria-label="放大画布">+</button>
-                <button className="btn" onClick={resetZoom} style={{ fontSize: '12px' }}>{Math.round(zoom * 100)}%</button>
-                <button className="btn" onClick={zoomOut} aria-label="缩小画布">−</button>
-            </div>
+            <div className="canvas-hints"><span>F 显示全部</span><span>Ctrl + S 保存版本</span></div>
+            <div className="canvas-controls" onMouseDown={event => event.stopPropagation()}><button className="icon-button" onClick={zoomOut} aria-label="缩小画布"><Icon name="minus" size={15} /></button><button className="icon-button zoom-label" onClick={resetZoom} title="重置缩放">{Math.round(zoom * 100)}%</button><button className="icon-button" onClick={zoomIn} aria-label="放大画布"><Icon name="plus" size={15} /></button><i /><button className="icon-button" onClick={fitView} title="显示全部数据表（F）" aria-label="适应画布"><Icon name="fit" size={16} /></button></div>
 
             <div
                 id="canvas-content"

@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { apiDelete, apiGet, apiPost, apiPut } from '../services/api';
 import { clearStoredUser, getStoredUser } from '../utils/storage';
 import Logo from '../components/Logo';
+import Icon from '../components/Icon';
+import { useTheme } from '../store/themeStore';
 import Toast from '../components/Toast';
 import ProjectPresetModal from '../components/ProjectPresetModal';
 import { createOrderExample, mostRecentProject, parseProjectFile } from '../utils/projectData';
@@ -14,18 +16,10 @@ function formatDateLabel(value) {
     });
 }
 
-function getProjectCardTone(type) {
-    if (type === 'my') {
-        return { badge: '我创建的', note: '可管理', accent: 'var(--accent-primary)' };
-    }
-    if (type === 'collaborated') {
-        return { badge: '协作', note: '成员视角', accent: 'var(--accent-tertiary)' };
-    }
-    return { badge: '开放', note: '待申请', accent: 'var(--accent-secondary)' };
-}
-
 export default function Dashboard() {
     const navigate = useNavigate();
+    const { theme, toggleTheme } = useTheme();
+    const [activeSection, setActiveSection] = useState('all');
     const [user, setUser] = useState(null);
     const [myProjects, setMyProjects] = useState([]);
     const [collaboratedProjects, setCollaboratedProjects] = useState([]);
@@ -202,241 +196,42 @@ export default function Dashboard() {
         }
     };
 
-    const renderProjectCard = (project, type) => {
-        const tone = getProjectCardTone(type);
+    const sectionNames = { all: '全部项目', my: '我创建的', collaborated: '参与协作', available: '团队项目' };
+    const navigation = [
+        { id: 'all', icon: 'grid', count: myProjects.length + collaboratedProjects.length },
+        { id: 'my', icon: 'folder', count: myProjects.length },
+        { id: 'collaborated', icon: 'users', count: collaboratedProjects.length },
+        { id: 'available', icon: 'database', count: availableProjects.length },
+    ];
+    const renderProjectCard = (project, type) => <article key={project.id} className="project-card" role={type === 'available' ? undefined : 'button'} tabIndex={type === 'available' ? undefined : 0} onClick={() => type !== 'available' && navigate(`/editor/${project.id}`)} onKeyDown={event => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); navigate(`/editor/${project.id}`); } }}>
+        <div className="project-card-head"><span className={`project-symbol is-${type}`}><Icon name={type === 'collaborated' ? 'users' : 'database'} size={19} /></span><div className="project-card-actions">
+            {type === 'my' && Number(project.pending_requests || 0) > 0 && <button className="btn btn-soft" onClick={event => viewRequests(project.id, event)}>{project.pending_requests} 条申请</button>}
+            {type === 'my' && <button className="icon-button is-danger delete-project" title={`删除项目 ${project.name}`} onClick={event => deleteProject(project.id, project.name, event)}><Icon name="trash" size={15} /></button>}
+        </div></div>
+        <h3>{project.name}</h3><p className="project-card-description">{type === 'available' ? '申请加入，与团队一起完善设计' : `${project.schema_data?.tables?.length || 0} 张数据表 · ${project.schema_data?.relationships?.length || 0} 条关系`}</p>
+        <div className="project-card-footer"><span><Icon name="history" size={12} />更新于 {formatDateLabel(project.updated_at || project.created_at)}</span>{type === 'available' ? <button className="btn" onClick={event => requestJoin(project.id, event)} disabled={project.request_status === 'pending'}>{project.request_status === 'pending' ? '等待审批' : '申请加入'}</button> : <Icon name="arrow" size={15} />}</div>
+    </article>;
+    const renderProjectSection = (title, projects, type) => <section className="dashboard-section"><div className="dashboard-section-head"><h2>{title}</h2><span>{projects.length}</span></div>{projects.length ? <div className="project-grid">{projects.map(project => renderProjectCard(project, type))}</div> : <div className="dashboard-empty"><Icon name={searchTerm ? 'search' : 'folder'} size={25} /><p>{searchTerm ? '没有找到匹配的项目，试试其他名称。' : type === 'available' ? '暂时没有可加入的团队项目。' : type === 'collaborated' ? '你还没有参与协作项目。' : '还没有项目，创建你的第一份设计吧。'}</p>{type === 'my' && !searchTerm && <button className="btn" onClick={() => openCreateModal()}>新建项目</button>}</div>}</section>;
 
-        return (
-            <div
-                key={project.id}
-                className="project-card glass dashboard-card-industrial"
-                onClick={() => type !== 'available' && navigate(`/editor/${project.id}`)}
-                role={type === 'available' ? undefined : 'button'}
-                tabIndex={type === 'available' ? undefined : 0}
-                onKeyDown={event => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); navigate(`/editor/${project.id}`); } }}
-                style={{ cursor: type === 'available' ? 'default' : 'pointer' }}
-            >
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'flex-start' }}>
-                    <div style={{ display: 'grid', gap: '0.45rem' }}>
-                        <span className="project-badge" style={{ color: tone.accent }}>{tone.badge}</span>
-                        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>PROJECT #{project.id}</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        {type === 'my' && Number(project.pending_requests || 0) > 0 && (
-                            <button className="btn" onClick={(event) => viewRequests(project.id, event)} style={{ padding: '0.45rem 0.75rem', minHeight: 'unset' }}>
-                                {project.pending_requests} 申请
-                            </button>
-                        )}
-                        {type === 'available' && (
-                            <button
-                                className="btn"
-                                onClick={(event) => requestJoin(project.id, event)}
-                                disabled={project.request_status === 'pending'}
-                                style={{ padding: '0.45rem 0.75rem', minHeight: 'unset' }}
-                            >
-                                {project.request_status === 'pending' ? '待审批' : '申请加入'}
-                            </button>
-                        )}
-                        {type === 'my' && (
-                            <button className="btn" onClick={(event) => deleteProject(project.id, project.name, event)} style={{ padding: '0.45rem 0.75rem', minHeight: 'unset', color: 'var(--accent-danger)' }}>
-                                删除
-                            </button>
-                        )}
-                    </div>
-                </div>
-
-                <div style={{ position: 'relative', zIndex: 1, display: 'grid', gap: '0.85rem' }}>
-                    <div>
-                        <h3 className="panel-heading" style={{ fontSize: '1.3rem', lineHeight: 1.05, marginBottom: '0.55rem' }}>{project.name}</h3>
-                        <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                            {type === 'available' ? '申请通过后，即可参与这个项目的设计。' : `${project.schema_data?.tables?.length || 0} 张表 · ${project.schema_data?.relationships?.length || 0} 条关系`}
-                        </p>
-                    </div>
-                    <div className="project-meta">
-                        <span className="project-badge">更新于 {formatDateLabel(project.updated_at || project.created_at)}</span>
-                        <span className="project-badge">{tone.note}</span>
-                    </div>
-                </div>
-            </div>
-        );
-    };
-
-    const renderProjectSection = (title, description, projects, type) => (
-        <section className="dashboard-section">
-            <div className="dashboard-section-head">
-                <div>
-                    <h2 className="panel-heading" style={{ fontSize: '1.08rem', marginBottom: '0.32rem' }}>{title}</h2>
-                    <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>{description}</p>
-                </div>
-                <div className="project-badge">{projects.length} 个项目</div>
-            </div>
-
-            {projects.length === 0 ? (
-                <div className="dashboard-empty">
-                    {searchTerm.trim() ? '当前筛选条件下没有项目。' : '这里还没有内容，继续创建或加入项目吧。'}
-                </div>
-            ) : (
-                <div className="project-grid">
-                    {projects.map((project) => renderProjectCard(project, type))}
-                </div>
-            )}
-        </section>
-    );
-
-    return (
-        <div className="dashboard-page dashboard-industrial">
-            <div className="dashboard-shell">
-                <section className="dashboard-hero glass dashboard-hero-industrial">
-                    <div className="dashboard-hero-industrial-head">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                            <Logo size={34} showText={true} />
-                            <span className="ui-kicker">项目工作台</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                            <span className="project-badge">{user?.username}</span>
-                            <button className="btn" onClick={() => { clearStoredUser(); navigate('/login'); }}>退出</button>
-                        </div>
-                    </div>
-
-                    <div className="dashboard-grid dashboard-grid-industrial">
-                        <div style={{ display: 'grid', gap: '1rem' }}>
-                            <div>
-                                <h1 className="panel-heading" style={{ fontSize: '2.7rem', lineHeight: 0.96, marginBottom: '0.7rem' }}>
-                                    数据库工作台
-                                </h1>
-                                <p style={{ maxWidth: '48rem', color: 'var(--text-secondary)', lineHeight: 1.85 }}>
-                                    从空白画布开始设计，或打开订单示例，了解表、字段和关系如何一起工作。
-                                </p>
-                            </div>
-
-                            <div className="dashboard-command-row">
-                                <button className="btn btn-primary" onClick={() => openCreateModal()}>+ 新建项目</button>
-                                <button className="btn" onClick={() => recentProject && navigate(`/editor/${recentProject.id}`)} disabled={!recentProject} title={recentProject?.name}>继续上次编辑</button>
-                                <button className="btn" onClick={() => importRef.current.click()}>导入项目备份</button>
-                                <div className="dashboard-search-shell">
-                                    <input
-                                        value={searchTerm}
-                                        onChange={(event) => setSearchTerm(event.target.value)}
-                                        placeholder="搜索项目名"
-                                        aria-label="搜索项目名"
-                                        className="dashboard-search-input"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="dashboard-stat-grid dashboard-stat-grid-industrial">
-                            {summaryStats.map((item) => (
-                                <div key={item.label} className="dashboard-stat-card dashboard-stat-card-industrial">
-                                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>{item.label}</div>
-                                    <div style={{ marginTop: '0.45rem', fontSize: '1.9rem', fontWeight: '800', color: item.accent }}>
-                                        {item.value}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </section>
-
+    return <div className="workspace">
+        <aside className="workspace-nav"><Logo size={29} /><span className="workspace-label">工作空间</span><nav aria-label="项目分类">{navigation.map(item => <button key={item.id} className={`nav-item ${activeSection === item.id ? 'is-active' : ''}`} onClick={() => setActiveSection(item.id)} title={sectionNames[item.id]}><Icon name={item.icon} size={17} /><span>{sectionNames[item.id]}</span><small>{item.count}</small></button>)}</nav>
+            <div className="workspace-nav-bottom"><button className="nav-item" onClick={toggleTheme} title={theme === 'light' ? '切换到暗色模式' : '切换到亮色模式'}><Icon name={theme === 'light' ? 'moon' : 'sun'} size={16} /><span>{theme === 'light' ? '暗色外观' : '浅色外观'}</span></button><div className="workspace-user"><span className="user-avatar">{user?.username?.slice(0,1).toUpperCase() || 'D'}</span><div><strong>{user?.username}</strong><small>我的工作空间</small></div><button className="icon-button" title="退出登录" onClick={() => { clearStoredUser(); navigate('/login'); }}><Icon name="logout" size={15} /></button></div></div>
+        </aside>
+        <main className="workspace-main"><header className="workspace-top"><div className="breadcrumbs"><span>工作空间</span><Icon name="chevron" size={12} /><strong>{sectionNames[activeSection]}</strong></div><span className="project-badge"><Icon name="database" size={13} />数据库设计</span></header>
+            <div className="workspace-content"><div className="workspace-heading"><div><h1>把下一个想法，变成结构。</h1><p>管理你的数据库设计，让每一次迭代都清晰有序。</p></div><div className="workspace-heading-actions"><button className="btn" onClick={() => importRef.current.click()}><Icon name="upload" size={15} />导入项目</button><button className="btn btn-primary" onClick={() => openCreateModal()}><Icon name="plus" size={16} />新建项目</button></div></div>
+                <section className="project-starter"><div className="starter-art"><Icon name={recentProject ? 'history' : 'table'} size={26} /></div><div className="starter-copy"><h2>{recentProject ? `继续设计「${recentProject.name}」` : '第一张关系图，从一个示例开始'}</h2><p>{recentProject ? '接着上次的思路，把结构设计再向前推进一步。' : '客户、订单与明细，三张表带你了解字段、主键和表间关系。'}</p></div>{recentProject ? <button className="btn" onClick={() => navigate(`/editor/${recentProject.id}`)}>继续上次编辑<Icon name="arrow" size={14} /></button> : <button className="btn" onClick={() => openCreateModal('orders')}>体验订单示例<Icon name="arrow" size={14} /></button>}</section>
+                <div className="project-list-heading"><h2>{sectionNames[activeSection]}<span>{navigation.find(item => item.id === activeSection)?.count} 个项目{summaryStats[3].value > 0 ? ` · ${summaryStats[3].value} 条待处理申请` : ''}</span></h2><div className="project-search"><Icon name="search" size={15} /><input className="ui-input" value={searchTerm} onChange={event => setSearchTerm(event.target.value)} aria-label="搜索项目名" placeholder="搜索项目…" /></div></div>
                 {loading ? <div className="dashboard-empty" role="status">正在加载项目…</div> : loadError ? <div className="dashboard-empty" role="alert"><p>{loadError}</p><button className="btn" onClick={loadProjects}>重新加载</button></div> : <>
-                    {!myProjects.length && !collaboratedProjects.length && !searchTerm && <section className="welcome-panel glass">
-                        <div><span className="ui-kicker">开始设计</span><h2>你的第一张关系图，从这里开始</h2><p>可以先用订单示例体验编辑、自动保存和 SQL 导出，也可以直接创建空白项目。</p></div>
-                        <div className="starter-actions"><button className="starter-card" onClick={() => openCreateModal('orders')}><strong>体验订单示例 →</strong><span>客户、订单、订单明细 · 3 张表，2 条关系</span></button><button className="starter-card" onClick={() => openCreateModal()}><strong>创建空白项目 →</strong><span>从第一张数据表开始，自由搭建结构</span></button></div>
-                    </section>}
-                    {(myProjects.length > 0 || searchTerm) && renderProjectSection('我创建的项目', '继续设计，或管理项目和协作申请。', filteredSections.my, 'my')}
-                    {collaboratedProjects.length > 0 && renderProjectSection('我协作的项目', '和团队一起完善数据库设计。', filteredSections.collaborated, 'collaborated')}
-                    {availableProjects.length > 0 && renderProjectSection('可加入的项目', '申请加入其他成员的项目。', filteredSections.available, 'available')}
+                    {(activeSection === 'all' || activeSection === 'my') && renderProjectSection('我创建的', filteredSections.my, 'my')}
+                    {(activeSection === 'collaborated' || (activeSection === 'all' && collaboratedProjects.length > 0)) && renderProjectSection('参与协作', filteredSections.collaborated, 'collaborated')}
+                    {activeSection === 'available' && renderProjectSection('可申请加入', filteredSections.available, 'available')}
                 </>}
             </div>
-            <input ref={importRef} type="file" accept=".json,application/json" onChange={importProject} hidden />
-            {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-
-            {showCreateModal && (
-                <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
-                    <div className="modal-content glass" onClick={(event) => event.stopPropagation()} style={{ width: '520px', maxWidth: '94vw', borderRadius: '22px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-                            <div>
-                                <span className="ui-kicker">Create Project</span>
-                                <h2 className="panel-heading" style={{ fontSize: '1.24rem', margin: '0.65rem 0 0.3rem' }}>新建数据库项目</h2>
-                                <p style={{ color: 'var(--text-secondary)', lineHeight: 1.65 }}>选择起点，输入名称，即可开始设计。</p>
-                            </div>
-                            <button className="btn" onClick={() => setShowCreateModal(false)}>&times;</button>
-                        </div>
-
-                        <div className="template-choices" role="group" aria-label="选择项目起点">
-                            <button className={`starter-card ${template === 'blank' ? 'is-selected' : ''}`} onClick={() => setTemplate('blank')}><strong>空白项目</strong><span>自由搭建数据结构</span></button>
-                            <button className={`starter-card ${template === 'orders' ? 'is-selected' : ''}`} onClick={() => { setTemplate('orders'); if (!newProjectName) setNewProjectName('订单系统示例'); }}><strong>订单示例</strong><span>3 张表 · 2 条关系</span></button>
-                            {imported && <button className={`starter-card ${template === 'import' ? 'is-selected' : ''}`} onClick={() => setTemplate('import')}><strong>导入的备份</strong><span>{imported.schema.tables.length} 张表</span></button>}
-                        </div>
-                        <label className="form-label">项目名称<input
-                            aria-label="项目名称"
-                            maxLength={100}
-                            value={newProjectName}
-                            onChange={(event) => setNewProjectName(event.target.value)}
-                            placeholder="例如：会员中心、订单平台、资产台账"
-                            className="ui-input"
-                            autoFocus
-                            onKeyDown={(event) => {
-                                if (event.key === 'Enter' && !createLoading) {
-                                    createProject();
-                                }
-                            }}
-                        /></label>
-                        <button className="btn" onClick={() => setShowPresetModal(true)} disabled={createLoading}>📋 配置规范预设{newProjectPreset?.rules ? ' ✓' : '（可选）'}</button>
-                        {createError && <p role="alert" className="inline-error">{createError}</p>}
-
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.15rem' }}>
-                            <button className="btn" onClick={() => setShowCreateModal(false)} disabled={createLoading}>取消</button>
-                            <button className="btn btn-primary" onClick={createProject} disabled={createLoading || !newProjectName.trim()}>
-                                {createLoading ? '创建中...' : '创建并进入'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {showPresetModal && <ProjectPresetModal initialPreset={newProjectPreset} onSave={async ({ preset }) => { setNewProjectPreset(preset); setShowPresetModal(false); }} onClose={() => setShowPresetModal(false)} />}
-
-            {showRequestsModal && (
-                <div className="modal-overlay" onClick={() => setShowRequestsModal(null)}>
-                    <div className="modal-content glass" onClick={(event) => event.stopPropagation()} style={{ width: '620px', maxHeight: '82vh', borderRadius: '22px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-                            <div>
-                                <span className="ui-kicker">Access Requests</span>
-                                <h2 className="panel-heading" style={{ fontSize: '1.18rem', margin: '0.6rem 0 0.28rem' }}>协作申请</h2>
-                                <p style={{ color: 'var(--text-secondary)' }}>审批其他成员加入你创建的项目。</p>
-                            </div>
-                            <button className="btn" onClick={() => setShowRequestsModal(null)}>&times;</button>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', overflowY: 'auto' }}>
-                            {requests.length === 0 ? (
-                                <div className="dashboard-empty">暂无申请</div>
-                            ) : (
-                                requests.map((req) => (
-                                    <div key={req.id} className="ui-card" style={{ padding: '1rem', borderRadius: '16px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', marginBottom: '0.55rem' }}>
-                                            <strong style={{ color: 'var(--text-primary)' }}>{req.username}</strong>
-                                            <span className="project-badge" style={{ color: req.status === 'pending' ? 'var(--accent-secondary)' : req.status === 'approved' ? 'var(--accent-success)' : 'var(--accent-danger)' }}>
-                                                {req.status === 'pending' ? '待审批' : req.status === 'approved' ? '已批准' : '已拒绝'}
-                                            </span>
-                                        </div>
-                                        {req.message && <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '0.55rem' }}>{req.message}</p>}
-                                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: req.status === 'pending' ? '0.8rem' : 0 }}>
-                                            {new Date(req.created_at).toLocaleString()}
-                                        </div>
-                                        {req.status === 'pending' && (
-                                            <div style={{ display: 'flex', gap: '0.6rem' }}>
-                                                <button className="btn" style={{ flex: 1, color: 'var(--accent-success)' }} onClick={() => handleRequest(req.id, 'approved')}>批准</button>
-                                                <button className="btn" style={{ flex: 1, color: 'var(--accent-danger)' }} onClick={() => handleRequest(req.id, 'rejected')}>拒绝</button>
-                                            </div>
-                                        )}
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
+        </main>
+        <input ref={importRef} type="file" accept=".json,application/json" onChange={importProject} hidden />
+        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        {showCreateModal && <div className="modal-overlay" onClick={() => !createLoading && setShowCreateModal(false)}><form className="modal-content" style={{ width: 500 }} onClick={event => event.stopPropagation()} onSubmit={event => { event.preventDefault(); if (!createLoading) createProject(); }}><div className="modal-heading"><div><h2>开始一个新设计</h2><p>选择起点，为你的数据库项目起个名字。</p></div><button className="icon-button" type="button" title="关闭" onClick={() => setShowCreateModal(false)}><Icon name="close" /></button></div><div className="template-choices" role="group" aria-label="选择项目起点"><button type="button" className={`starter-card ${template === 'blank' ? 'is-selected' : ''}`} onClick={() => setTemplate('blank')}><Icon name="file" size={21} /><strong>空白项目</strong><span>从第一张表自由搭建</span></button><button type="button" className={`starter-card ${template === 'orders' ? 'is-selected' : ''}`} onClick={() => { setTemplate('orders'); if (!newProjectName) setNewProjectName('订单系统示例'); }}><Icon name="table" size={21} /><strong>订单示例</strong><span>3 张表 · 2 条关系</span></button>{imported && <button type="button" className={`starter-card ${template === 'import' ? 'is-selected' : ''}`} onClick={() => setTemplate('import')}><Icon name="upload" size={21} /><strong>导入的备份</strong><span>{imported.schema.tables.length} 张表</span></button>}</div><label className="form-label">项目名称<input className="ui-input" aria-label="项目名称" value={newProjectName} onChange={event => setNewProjectName(event.target.value)} placeholder="例如：会员中心、订单平台" required maxLength={100} autoFocus /></label><button type="button" className="btn" onClick={() => setShowPresetModal(true)} disabled={createLoading}><Icon name="file" size={15} />配置规范预设{newProjectPreset?.rules ? ' ✓' : '（可选）'}</button>{createError && <p role="alert" className="inline-error" style={{ marginTop: 10 }}>{createError}</p>}<div className="modal-footer"><button type="button" className="btn" onClick={() => setShowCreateModal(false)} disabled={createLoading}>取消</button><button className="btn btn-primary" disabled={createLoading || !newProjectName.trim()}>{createLoading ? '创建中…' : '创建并开始'}<Icon name="arrow" size={14} /></button></div></form></div>}
+        {showPresetModal && <ProjectPresetModal initialPreset={newProjectPreset} onSave={async ({ preset }) => { setNewProjectPreset(preset); setShowPresetModal(false); }} onClose={() => setShowPresetModal(false)} />}
+        {showRequestsModal && <div className="modal-overlay" onClick={() => setShowRequestsModal(null)}><div className="modal-content" style={{ width: 560 }} onClick={event => event.stopPropagation()}><div className="modal-heading"><div><h2>协作申请</h2><p>审批其他成员加入你的项目。</p></div><button className="icon-button" title="关闭" onClick={() => setShowRequestsModal(null)}><Icon name="close" /></button></div><div style={{ overflowY: 'auto' }}>{!requests.length ? <div className="dashboard-empty">暂无协作申请</div> : requests.map(request => <div className="request-card" key={request.id}><div className="request-card-head"><strong>{request.username}</strong><span className="project-badge">{request.status === 'pending' ? '待审批' : request.status === 'approved' ? '已通过' : '已拒绝'}</span></div>{request.message && <p>{request.message}</p>}<small>{formatDateLabel(request.created_at)}</small>{request.status === 'pending' && <div className="session-actions" style={{ marginTop: 12 }}><button className="btn btn-primary" onClick={() => handleRequest(request.id, 'approved')}>通过申请</button><button className="btn" onClick={() => handleRequest(request.id, 'rejected')}>拒绝</button></div>}</div>)}</div></div></div>}
+    </div>;
 }
