@@ -105,6 +105,22 @@ test('SQLite API persists projects, versions and collaboration', async t => {
         await request('GET', '/api/projects', undefined, undefined, 401);
     });
 
+    await t.test('account settings are isolated, encrypted and survive restart', async () => {
+        const presets = [{ id: 'p1', name: '规范', rules: '使用下划线', sourceName: '' }];
+        const profiles = [{ id: 'a1', name: 'AI', active: true, settings: { apiKey: 'secret-test-token', apiUrl: 'https://example.test/v1', modelText: 'text', modelVision: 'vision' } }];
+        await request('PUT', '/api/account/presets', presets, owner);
+        await request('PUT', '/api/account/ai-profiles', profiles, owner);
+        assert.deepEqual(await request('GET', '/api/account/presets', undefined, member), []);
+        assert.equal(await request('GET', '/api/account/ai-profiles', undefined, member), null);
+        await request('PUT', '/api/account/ai-profiles', [], owner, 400);
+        await request('GET', '/api/account/presets', undefined, undefined, 401);
+        await stop();
+        assert.equal(fs.readFileSync(databasePath).includes(Buffer.from('secret-test-token')), false);
+        await start();
+        assert.deepEqual(await request('GET', '/api/account/presets', undefined, owner), presets);
+        assert.deepEqual(await request('GET', '/api/account/ai-profiles', undefined, owner), profiles);
+    });
+
     await t.test('project JSON round trip and concurrent transactions', async () => {
         project = await request('POST', '/api/projects', { name: 'SQLite 中文项目', schema }, owner);
         assert.deepEqual(project.schema_data, schema);

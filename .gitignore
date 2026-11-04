@@ -35,3 +35,6 @@ server/data/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+*.sqlite.key
+*.sqlite3.key
+*.db.key

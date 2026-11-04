@@ -26,6 +26,12 @@ connection.exec(`
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS user_settings (
+        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        presets TEXT NOT NULL DEFAULT '[]',
+        ai_profiles TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS projects (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,

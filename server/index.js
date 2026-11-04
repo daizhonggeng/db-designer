@@ -5,6 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const { Client } = require('pg');
 const db = require('./db');
+const settingsCrypto = require('./settingsCrypto');
 
 const scrypt = promisify(crypto.scrypt);
 const app = express();
@@ -282,6 +283,41 @@ function requireVersionAccess(ownerOnly = false) {
 
 app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
+});
+
+app.get('/api/account/:kind', requireAuth, (req, res) => {
+    const { kind } = req.params;
+    if (!['presets', 'ai-profiles'].includes(kind)) return res.status(404).json({ error: '未知配置' });
+    try {
+        const row = db.query('SELECT presets, ai_profiles FROM user_settings WHERE user_id = $1', [req.userId]).rows[0];
+        res.set('Cache-Control', 'no-store');
+        return res.json(kind === 'presets' ? (row ? JSON.parse(row.presets) : []) : (row?.ai_profiles ? settingsCrypto.decrypt(row.ai_profiles, req.userId) : null));
+    } catch (error) {
+        console.error('读取账号配置失败', error.message);
+        return res.status(500).json({ error: '读取账号配置失败，请检查服务器加密密钥。' });
+    }
+});
+
+app.put('/api/account/:kind', requireAuth, (req, res) => {
+    const { kind } = req.params;
+    if (!['presets', 'ai-profiles'].includes(kind)) return res.status(404).json({ error: '未知配置' });
+    const values = req.body;
+    const validString = (value, max) => typeof value === 'string' && value.length <= max;
+    if (!Array.isArray(values) || values.length > 100 || JSON.stringify(values).length > 1000000) return res.status(400).json({ error: '配置格式或大小无效。' });
+    const valid = kind === 'presets'
+        ? values.every(item => item && validString(item.id, 100) && isNonEmptyString(item.name) && validString(item.name, 255) && validString(item.rules, 20000) && validString(item.sourceName || '', 255))
+        : values.length > 0 && values.filter(item => item?.active === true).length === 1 && values.every(item => item && validString(item.id, 100) && isNonEmptyString(item.name) && validString(item.name, 255) && typeof item.active === 'boolean' && item.settings && ['apiUrl', 'apiKey', 'modelText', 'modelVision'].every(field => validString(item.settings[field], 4096)));
+    if (!valid) return res.status(400).json({ error: '配置内容无效。' });
+    try {
+        const column = kind === 'presets' ? 'presets' : 'ai_profiles';
+        const stored = kind === 'presets' ? JSON.stringify(values) : settingsCrypto.encrypt(values, req.userId);
+        db.query(`INSERT INTO user_settings (user_id, ${column}) VALUES ($1, $2) ON CONFLICT(user_id) DO UPDATE SET ${column} = excluded.${column}`, [req.userId, stored]);
+        res.set('Cache-Control', 'no-store');
+        return res.json({ ok: true });
+    } catch (error) {
+        console.error('保存账号配置失败', error.message);
+        return res.status(500).json({ error: '保存账号配置失败。' });
+    }
 });
 
 app.post('/api/register', async (req, res) => {
