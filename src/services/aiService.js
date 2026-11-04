@@ -1,9 +1,25 @@
 
 const env = import.meta.env || {};
-const API_KEY = env.VITE_AI_API_KEY;
-const API_ENDPOINT = resolveChatCompletionsEndpoint(env.VITE_AI_API_URL || 'https://api.openai.com/v1');
-const MODEL_TEXT = env.VITE_AI_MODEL_TEXT || 'gpt-5.4';
-const MODEL_VISION = env.VITE_AI_MODEL_VISION || MODEL_TEXT;
+const STORAGE_KEY = 'db-designer-ai-settings';
+
+export function getAISettings() {
+  const defaults = {
+    apiKey: env.VITE_AI_API_KEY || '',
+    apiUrl: env.VITE_AI_API_URL || 'https://api.openai.com/v1',
+    modelText: env.VITE_AI_MODEL_TEXT || 'gpt-5.4',
+    modelVision: env.VITE_AI_MODEL_VISION || env.VITE_AI_MODEL_TEXT || 'gpt-5.4'
+  };
+  try {
+    const saved = globalThis.localStorage?.getItem(STORAGE_KEY);
+    return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
+  } catch {
+    return defaults;
+  }
+}
+
+export function saveAISettings(settings) {
+  globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+}
 
 function resolveChatCompletionsEndpoint(rawUrl) {
   const normalizedUrl = rawUrl.trim().replace(/\/+$/, '');
@@ -13,7 +29,9 @@ function resolveChatCompletionsEndpoint(rawUrl) {
 export async function summarizeSpecification(text, signal) {
   if (!text?.trim()) throw new Error('规范正文为空，无法总结。');
   if (text.length > 60000) throw new Error('规范正文超过 60,000 字符，请精简后重试。');
-  if (!API_KEY) throw new Error('请先配置 VITE_AI_API_KEY');
+  const { apiKey: API_KEY, apiUrl, modelText: MODEL_TEXT } = getAISettings();
+  if (!API_KEY) throw new Error('请先在 AI 配置中填写 API 密钥（VITE_AI_API_KEY）。');
+  const API_ENDPOINT = resolveChatCompletionsEndpoint(apiUrl);
 
   const response = await fetch(API_ENDPOINT, {
     method: 'POST',
@@ -54,7 +72,9 @@ export async function summarizeSpecification(text, signal) {
 }
 
 export async function generateSchema(description, imageBase64 = null, designPreset = null) {
-  if (!API_KEY) throw new Error('请先配置 VITE_AI_API_KEY');
+  const { apiKey: API_KEY, apiUrl, modelText: MODEL_TEXT, modelVision: MODEL_VISION } = getAISettings();
+  if (!API_KEY) throw new Error('请先在 AI 配置中填写 API 密钥（VITE_AI_API_KEY）。');
+  const API_ENDPOINT = resolveChatCompletionsEndpoint(apiUrl);
   const isVision = !!imageBase64;
   const MODEL_NAME = isVision ? MODEL_VISION : MODEL_TEXT;
 

@@ -88,3 +88,23 @@ test('AI 设计正确拼接跨网络分块的 JSON 和中文字符', async (t) =
     })));
     assert.deepEqual((await generateSchema('客户管理', null, { rules: '使用 crm_ 前缀' })).schema, schema);
 });
+
+test('浏览器保存的配置立即用于规范总结和设计请求', async (t) => {
+    let stored = '';
+    globalThis.localStorage = { getItem: () => stored, setItem: (_key, value) => { stored = value; } };
+    t.after(() => { delete globalThis.localStorage; });
+    const { saveAISettings } = await import(`data:text/javascript,${encodeURIComponent(source.replace('import.meta.env', JSON.stringify(testConfig)))}`);
+    saveAISettings({ apiKey: 'local-key', apiUrl: 'https://local.test/v1', modelText: 'text-model', modelVision: 'vision-model' });
+    const calls = [];
+    t.mock.method(globalThis, 'fetch', async (url, options) => {
+        calls.push({ url, options, body: JSON.parse(options.body) });
+        if (!JSON.parse(options.body).stream) return Response.json({ choices: [{ message: { content: '规则' } }] });
+        return new Response('data: {"choices":[{"delta":{"content":"{\\"tables\\":[],\\"relationships\\":[]}"}}]}\n\n');
+    });
+    await summarizeSpecification('规范');
+    await generateSchema('设计', 'data:image/png;base64,test');
+    assert.equal(calls[0].url, 'https://local.test/v1/chat/completions');
+    assert.equal(calls[0].options.headers.Authorization, 'Bearer local-key');
+    assert.equal(calls[0].body.model, 'text-model');
+    assert.equal(calls[1].body.model, 'vision-model');
+});
