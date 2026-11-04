@@ -17,6 +17,23 @@ export function getAISettings() {
   }
 }
 
+const PROFILES_KEY = 'db-designer-ai-profiles';
+
+export function getAIProfiles() {
+  try {
+    const saved = JSON.parse(globalThis.localStorage?.getItem(PROFILES_KEY) || 'null');
+    if (Array.isArray(saved) && saved.length) return saved;
+  } catch { /* Keep the existing configuration available. */ }
+  return [{ id: 'default', name: '默认配置', settings: getAISettings(), active: true }];
+}
+
+export function saveAIProfiles(profiles) {
+  const active = profiles.find(profile => profile.active);
+  if (!active) throw new Error('请选择一个全局默认配置。');
+  globalThis.localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
+  saveAISettings(active.settings);
+}
+
 export function saveAISettings(settings) {
   globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
 }

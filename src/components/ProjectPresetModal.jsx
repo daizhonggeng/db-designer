@@ -4,8 +4,8 @@ import { readSpecificationFile } from '../utils/specificationFile';
 import { summarizeSpecification } from '../services/aiService';
 import './ProjectPresetModal.css';
 
-export default function ProjectPresetModal({ initialPreset, creating = false, onSave, onClose }) {
-    const [name, setName] = useState('');
+export default function ProjectPresetModal({ initialPreset, creating = false, library = false, onSave, onClose }) {
+    const [name, setName] = useState(initialPreset?.name || '');
     const [rules, setRules] = useState(initialPreset?.rules || '');
     const [sourceName, setSourceName] = useState(initialPreset?.sourceName || '');
     const [document, setDocument] = useState(null);
@@ -79,9 +79,9 @@ export default function ProjectPresetModal({ initialPreset, creating = false, on
                 </div>
 
                 <div className="preset-body">
-                    {creating && (
+                    {(creating || library) && (
                         <label className="preset-field">
-                            <span>项目名称 <span aria-hidden="true">*</span></span>
+                            <span>{library ? '预设名称' : '项目名称'} <span aria-hidden="true">*</span></span>
                             <input autoFocus required maxLength={255} value={name} disabled={busy}
                                 onChange={event => setName(event.target.value)} placeholder="例如：客户管理数据库" />
                         </label>
@@ -118,7 +118,7 @@ export default function ProjectPresetModal({ initialPreset, creating = false, on
 
                 <div className="preset-footer">
                     <button type="button" className="btn" onClick={onClose} disabled={status === 'saving'}>取消</button>
-                    <button type="submit" className="btn btn-primary" disabled={busy || (creating && !name.trim())}>
+                    <button type="submit" className="btn btn-primary" disabled={busy || ((creating || library) && !name.trim()) || (library && !rules.trim())}>
                         {status === 'saving' ? '保存中…' : creating ? '创建项目' : '保存预设'}
                     </button>
                 </div>

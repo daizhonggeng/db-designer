@@ -1,9 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { getAISettings, saveAISettings, testAISettings } from '../services/aiService';
+import { getAIProfiles, saveAIProfiles, testAISettings } from '../services/aiService';
 import Icon from './Icon';
 
 export default function AISettingsModal({ onClose }) {
-    const [settings, setSettings] = useState(getAISettings);
+    const [profiles, setProfiles] = useState(getAIProfiles);
+    const [selectedId, setSelectedId] = useState(() => getAIProfiles().find(profile => profile.active)?.id);
+    const selected = profiles.find(profile => profile.id === selectedId) || profiles[0];
+    const settings = selected.settings;
+    const setSettings = updater => setProfiles(current => current.map(profile => profile.id === selectedId ? { ...profile, settings: typeof updater === 'function' ? updater(profile.settings) : updater } : profile));
     const [error, setError] = useState('');
     const [testResult, setTestResult] = useState(null);
     const [testing, setTesting] = useState('');
@@ -42,7 +46,7 @@ export default function AISettingsModal({ onClose }) {
                 setError('请填写密钥和模型名称。');
                 return;
             }
-            saveAISettings(Object.fromEntries(Object.entries(settings).map(([key, value]) => [key, value.trim()])));
+            saveAIProfiles(profiles.map(profile => profile.id === selectedId ? { ...profile, settings: Object.fromEntries(Object.entries(settings).map(([key, value]) => [key, value.trim()])) } : profile));
             onClose();
         } catch {
             setError('请输入有效的 HTTP(S) 接口地址，并确认浏览器允许本地存储。');
@@ -51,6 +55,9 @@ export default function AISettingsModal({ onClose }) {
     return <div className="modal-overlay" onClick={onClose}>
         <form className="modal-content" style={{ width: 540, maxHeight: '90vh', overflowY: 'auto' }} onClick={event => event.stopPropagation()} onSubmit={save}>
             <div className="modal-heading"><div><h2>AI 配置</h2><p>配置兼容 OpenAI 的聊天补全接口。</p></div><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}><Icon name="close" /></button></div>
+            <label className="form-label">选择配置<select className="ui-input" value={selectedId} onChange={event => { setSelectedId(event.target.value); setTestResult(null); }}>{profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}{profile.active ? '（全局默认）' : ''}</option>)}</select></label>
+            <label className="form-label">配置名称<input className="ui-input" required value={selected.name} onChange={event => setProfiles(current => current.map(profile => profile.id === selectedId ? { ...profile, name: event.target.value } : profile))} /></label>
+            <div className="session-actions"><label><input type="radio" checked={selected.active} onChange={() => setProfiles(current => current.map(profile => ({ ...profile, active: profile.id === selectedId })))} /> 全局默认</label><button type="button" className="btn" onClick={() => { const id = crypto.randomUUID(); setProfiles(current => [...current, { id, name: '新配置', active: false, settings: { apiUrl: 'https://api.openai.com/v1', apiKey: '', modelText: '', modelVision: '' } }]); setSelectedId(id); }}>新增配置</button><button type="button" className="btn" disabled={profiles.length === 1 || selected.active} onClick={() => { setProfiles(current => current.filter(profile => profile.id !== selectedId)); setSelectedId(profiles.find(profile => profile.active).id); }}>删除配置</button></div>
             <label className="form-label">接口地址<input className="ui-input" type="url" required value={settings.apiUrl} onChange={event => update('apiUrl', event.target.value)} placeholder="https://api.openai.com/v1" /></label>
             <label className="form-label">API 密钥<input className="ui-input" type="password" required autoComplete="off" value={settings.apiKey} onChange={event => update('apiKey', event.target.value)} /></label>
             <label className="form-label">文字模型<input className="ui-input" required value={settings.modelText} onChange={event => update('modelText', event.target.value)} /></label>

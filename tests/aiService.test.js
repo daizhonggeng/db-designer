@@ -124,6 +124,21 @@ test('浏览器保存的配置立即用于规范总结和设计请求', async (t
     assert.equal(calls[1].body.model, 'vision-model');
 });
 
+test('旧 AI 配置迁移为默认项并可切换全局配置', async (t) => {
+    const storage = new Map();
+    globalThis.localStorage = { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) };
+    t.after(() => { delete globalThis.localStorage; });
+    const service = await import(`data:text/javascript,${encodeURIComponent(source.replace('import.meta.env', JSON.stringify(testConfig)))}`);
+    service.saveAISettings({ apiKey: 'existing', apiUrl: 'https://example.test/v1', modelText: 'old', modelVision: 'old' });
+    const original = service.getAIProfiles()[0];
+    assert.equal(original.settings.apiKey, 'existing');
+    const next = { id: 'second', name: '第二个', active: true, settings: { ...original.settings, modelText: 'new' } };
+    service.saveAIProfiles([{ ...original, active: false }, next]);
+    assert.equal(service.getAISettings().modelText, 'new');
+    assert.equal(service.getAIProfiles().length, 2);
+    assert.throws(() => service.saveAIProfiles([{ ...original, active: false }]), /全局默认/);
+});
+
 test('测试配置使用当前填写的文字和图片模型并检查响应', async (t) => {
     const { testAISettings } = await import(`data:text/javascript,${encodeURIComponent(source.replace('import.meta.env', JSON.stringify(testConfig)))}`);
     const settings = { apiUrl: 'https://example.test/v1', apiKey: 'unsaved-key', modelText: 'text-model', modelVision: 'vision-model' };
