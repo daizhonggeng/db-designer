@@ -108,3 +108,25 @@ test('浏览器保存的配置立即用于规范总结和设计请求', async (t
     assert.equal(calls[0].body.model, 'text-model');
     assert.equal(calls[1].body.model, 'vision-model');
 });
+
+test('测试配置使用当前填写的文字和图片模型并检查响应', async (t) => {
+    const { testAISettings } = await import(`data:text/javascript,${encodeURIComponent(source.replace('import.meta.env', JSON.stringify(testConfig)))}`);
+    const settings = { apiUrl: 'https://example.test/v1', apiKey: 'unsaved-key', modelText: 'text-model', modelVision: 'vision-model' };
+    const requests = [];
+    const mock = t.mock.method(globalThis, 'fetch', async (url, options) => {
+        requests.push({ url, options, body: JSON.parse(options.body) });
+        return Response.json({ choices: [{ message: { content: '成功' } }] });
+    });
+    await testAISettings(settings, 'text');
+    await testAISettings(settings, 'vision');
+    assert.equal(requests[0].url, 'https://example.test/v1/chat/completions');
+    assert.equal(requests[0].options.headers.Authorization, 'Bearer unsaved-key');
+    assert.equal(requests[0].body.model, 'text-model');
+    assert.equal(requests[1].body.model, 'vision-model');
+    assert.equal(requests[1].body.messages[0].content[1].type, 'image_url');
+    mock.mock.mockImplementation(async () => Response.json({ error: { message: '密钥无效' } }, { status: 401 }));
+    await assert.rejects(testAISettings(settings, 'text'), /密钥无效/);
+    mock.mock.mockImplementation(async () => Response.json({ choices: [] }));
+    await assert.rejects(testAISettings(settings, 'text'), /未返回有效内容/);
+    await assert.rejects(testAISettings({ ...settings, apiUrl: 'javascript:alert(1)' }, 'text'), /接口地址/);
+});

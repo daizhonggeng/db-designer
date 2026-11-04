@@ -26,6 +26,31 @@ function resolveChatCompletionsEndpoint(rawUrl) {
   return normalizedUrl.endsWith('/chat/completions') ? normalizedUrl : `${normalizedUrl}/chat/completions`;
 }
 
+export async function testAISettings(settings, kind, signal) {
+  const model = (kind === 'vision' ? settings.modelVision : settings.modelText)?.trim();
+  const apiKey = settings.apiKey?.trim();
+  if (!apiKey || !model) throw new Error('请填写 API 密钥和要测试的模型名称。');
+  let url;
+  try {
+    url = new URL(settings.apiUrl.trim());
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
+  } catch {
+    throw new Error('请输入有效的 HTTP(S) 接口地址。');
+  }
+  const content = kind === 'vision'
+    ? [{ type: 'text', text: '请简短描述这张图片。' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC' } }]
+    : '请回复“连接成功”。';
+  const response = await fetch(resolveChatCompletionsEndpoint(url.href), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    signal,
+    body: JSON.stringify({ model, stream: false, ...(model.toLowerCase().includes('qwen') ? { enable_thinking: false } : {}), messages: [{ role: 'user', content }] })
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.error?.message || data?.message || `请求失败（HTTP ${response.status}）`);
+  if (!data?.choices?.[0]?.message?.content?.trim()) throw new Error('服务未返回有效内容。');
+}
+
 export async function summarizeSpecification(text, signal) {
   if (!text?.trim()) throw new Error('规范正文为空，无法总结。');
   if (text.length > 60000) throw new Error('规范正文超过 60,000 字符，请精简后重试。');
