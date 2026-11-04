@@ -3,7 +3,6 @@ import ColorPicker from './ColorPicker';
 import { hexToRgba } from '../utils/colors';
 
 export default function BookmarkNode({ bookmark, dispatch, zoom }) {
-    const [isResizing, setIsResizing] = useState(false);
     const [isEditingName, setIsEditingName] = useState(false);
     const [name, setName] = useState(bookmark.name);
     const [showColorPicker, setShowColorPicker] = useState(false);
@@ -30,7 +29,6 @@ export default function BookmarkNode({ bookmark, dispatch, zoom }) {
 
     const handleResizeStart = (e) => {
         e.stopPropagation();
-        setIsResizing(true);
         const startX = e.clientX;
         const startY = e.clientY;
         const startWidth = bookmark.width;
@@ -53,7 +51,6 @@ export default function BookmarkNode({ bookmark, dispatch, zoom }) {
         };
 
         const handleMouseUp = () => {
-            setIsResizing(false);
             window.removeEventListener('mousemove', handleMouseMove);
             window.removeEventListener('mouseup', handleMouseUp);
         };

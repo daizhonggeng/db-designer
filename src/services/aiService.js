@@ -1,10 +1,22 @@
 
 const API_KEY = import.meta.env.VITE_AI_API_KEY;
-const API_ENDPOINT = import.meta.env.VITE_AI_API_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
-const MODEL_TEXT = import.meta.env.VITE_AI_MODEL_TEXT || "qwen3-max";
-const MODEL_VISION = import.meta.env.VITE_AI_MODEL_VISION || "qwen3-vl-plus";
+const API_URL = import.meta.env.VITE_AI_API_URL || "https://api.openai.com/v1";
+const MODEL_TEXT = import.meta.env.VITE_AI_MODEL_TEXT || "gpt-5.4";
+const MODEL_VISION = import.meta.env.VITE_AI_MODEL_VISION || MODEL_TEXT;
+
+function resolveChatCompletionsEndpoint(rawUrl) {
+  const normalizedUrl = rawUrl.trim().replace(/\/+$/, "");
+  if (normalizedUrl.endsWith("/chat/completions")) {
+    return normalizedUrl;
+  }
+  return `${normalizedUrl}/chat/completions`;
+}
 
 export async function generateSchema(description, imageBase64 = null) {
+  if (!API_KEY) {
+    throw new Error('请先配置 VITE_AI_API_KEY');
+  }
+
   const isVision = !!imageBase64;
   const MODEL_NAME = isVision ? MODEL_VISION : MODEL_TEXT;
 
@@ -70,7 +82,7 @@ IMPORTANT: You MUST provide meaningful comments in Chinese (Simplified) for ever
   }
 
   try {
-    const response = await fetch(API_ENDPOINT, {
+    const response = await fetch(resolveChatCompletionsEndpoint(API_URL), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -85,6 +97,10 @@ IMPORTANT: You MUST provide meaningful comments in Chinese (Simplified) for ever
     }
 
     // Handle Streaming Response
+    if (!response.body) {
+      throw new Error('AI 服务没有返回可读取的数据流');
+    }
+
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
     let reasoning = "";

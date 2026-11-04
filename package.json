@@ -7,7 +7,15 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "server:dev": "npm --prefix server run dev",
+    "server:start": "npm --prefix server run start",
+    "server:init-db": "npm --prefix server run init-db",
+    "server:migrate": "npm --prefix server run migrate",
+    "server:migrate:versions": "npm --prefix server run migrate:versions"
+  },
+  "engines": {
+    "node": ">=22.16.0"
   },
   "dependencies": {
     "dagre": "^0.8.5",

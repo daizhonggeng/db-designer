@@ -1,6 +1,25 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { API_BASE_URL } from '../config';
+import { apiDelete, apiGet, apiPost, apiPut } from '../services/api';
+import { clearStoredUser, getStoredUser } from '../utils/storage';
+import Logo from '../components/Logo';
+
+function formatDateLabel(value) {
+    return new Date(value).toLocaleDateString('zh-CN', {
+        month: 'short',
+        day: 'numeric',
+    });
+}
+
+function getProjectCardTone(type) {
+    if (type === 'my') {
+        return { badge: '主控', note: '可管理', accent: 'var(--accent-primary)' };
+    }
+    if (type === 'collaborated') {
+        return { badge: '协作', note: '成员视角', accent: 'var(--accent-tertiary)' };
+    }
+    return { badge: '开放', note: '待申请', accent: 'var(--accent-secondary)' };
+}
 
 export default function Dashboard() {
     const navigate = useNavigate();
@@ -10,24 +29,27 @@ export default function Dashboard() {
     const [availableProjects, setAvailableProjects] = useState([]);
     const [showRequestsModal, setShowRequestsModal] = useState(null);
     const [requests, setRequests] = useState([]);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [newProjectName, setNewProjectName] = useState('');
+    const [createLoading, setCreateLoading] = useState(false);
 
     useEffect(() => {
-        const storedUser = localStorage.getItem('user');
-        if (!storedUser) {
+        const currentUser = getStoredUser();
+        if (!currentUser) {
             navigate('/login');
             return;
         }
-        const userData = JSON.parse(storedUser);
-        setUser(userData);
-        loadProjects(userData.id);
+        setUser(currentUser);
+        loadProjects(currentUser.id);
     }, [navigate]);
 
     const loadProjects = async (userId) => {
         try {
             const [my, collab, avail] = await Promise.all([
-                fetch(`${API_BASE_URL}/api/projects/my-created?userId=${userId}`).then(r => r.json()),
-                fetch(`${API_BASE_URL}/api/projects/my-collaborated?userId=${userId}`).then(r => r.json()),
-                fetch(`${API_BASE_URL}/api/projects/available?userId=${userId}`).then(r => r.json())
+                apiGet(`/api/projects/my-created?userId=${userId}`),
+                apiGet(`/api/projects/my-collaborated?userId=${userId}`),
+                apiGet(`/api/projects/available?userId=${userId}`),
             ]);
             setMyProjects(my);
             setCollaboratedProjects(collab);
@@ -37,76 +59,99 @@ export default function Dashboard() {
         }
     };
 
+    const summaryStats = useMemo(() => {
+        const totalProjects = myProjects.length + collaboratedProjects.length + availableProjects.length;
+        const pendingRequests = myProjects.reduce((total, project) => total + Number(project.pending_requests || 0), 0);
+
+        return [
+            { label: '项目总数', value: totalProjects, accent: 'var(--accent-primary)' },
+            { label: '我创建的', value: myProjects.length, accent: 'var(--accent-tertiary)' },
+            { label: '协作中', value: collaboratedProjects.length, accent: 'var(--accent-success)' },
+            { label: '待处理申请', value: pendingRequests, accent: 'var(--accent-secondary)' },
+        ];
+    }, [availableProjects.length, collaboratedProjects.length, myProjects]);
+
+    const filteredSections = useMemo(() => {
+        const normalizedSearch = searchTerm.trim().toLowerCase();
+        const filterProjects = (projects) => {
+            if (!normalizedSearch) {
+                return projects;
+            }
+            return projects.filter((project) => project.name.toLowerCase().includes(normalizedSearch));
+        };
+
+        return {
+            my: filterProjects(myProjects),
+            collaborated: filterProjects(collaboratedProjects),
+            available: filterProjects(availableProjects),
+        };
+    }, [availableProjects, collaboratedProjects, myProjects, searchTerm]);
+
+    const recentProjectId = useMemo(() => {
+        const allProjects = [...myProjects, ...collaboratedProjects, ...availableProjects];
+        if (allProjects.length === 0) {
+            return null;
+        }
+        return [...allProjects].sort((left, right) => new Date(right.created_at) - new Date(left.created_at))[0]?.id || null;
+    }, [availableProjects, collaboratedProjects, myProjects]);
+
+    const openCreateModal = () => {
+        setNewProjectName('');
+        setShowCreateModal(true);
+    };
+
     const createProject = async () => {
-        const name = prompt('请输入项目名称:');
-        if (!name) return;
+        const name = newProjectName.trim();
+        if (!name) {
+            alert('请输入项目名称');
+            return;
+        }
 
         try {
-            const res = await fetch(`${API_BASE_URL}/api/projects`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: user.id, name })
-            });
-
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => ({ error: '创建项目失败' }));
-                throw new Error(errorData.error || '创建项目失败');
+            setCreateLoading(true);
+            const newProject = await apiPost('/api/projects', { name });
+            if (!newProject.id) {
+                throw new Error('返回的项目数据无效');
             }
-
-            const newProject = await res.json();
-            if (!newProject.id) throw new Error('返回的项目数据无效');
-
+            setShowCreateModal(false);
             navigate(`/editor/${newProject.id}`);
         } catch (err) {
             console.error('Create project error:', err);
             alert('创建项目失败: ' + err.message);
+        } finally {
+            setCreateLoading(false);
         }
     };
 
-    const deleteProject = async (projectId, projectName, e) => {
-        e.stopPropagation();
+    const deleteProject = async (projectId, projectName, event) => {
+        event.stopPropagation();
         if (!confirm(`确定要删除项目 "${projectName}" 吗？此操作不可恢复！`)) return;
 
         try {
-            const res = await fetch(`${API_BASE_URL}/api/projects/${projectId}`, {
-                method: 'DELETE'
-            });
-            if (res.ok) {
-                loadProjects(user.id);
-                alert('删除成功！');
-            } else {
-                const errorData = await res.json().catch(() => ({ error: '删除失败' }));
-                throw new Error(errorData.error || '删除失败');
-            }
+            await apiDelete(`/api/projects/${projectId}`);
+            loadProjects(user.id);
+            alert('删除成功！');
         } catch (err) {
             alert('删除失败: ' + err.message);
         }
     };
 
-    const requestJoin = async (projectId, e) => {
-        e.stopPropagation();
+    const requestJoin = async (projectId, event) => {
+        event.stopPropagation();
         const message = prompt('请输入申请理由（可选）:');
-
         try {
-            const res = await fetch(`${API_BASE_URL}/api/projects/${projectId}/request`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: user.id, message })
-            });
-            if (res.ok) {
-                alert('申请已提交！');
-                loadProjects(user.id);
-            }
+            await apiPost(`/api/projects/${projectId}/request`, { message });
+            alert('申请已提交！');
+            loadProjects(user.id);
         } catch (err) {
             alert('申请失败: ' + err.message);
         }
     };
 
-    const viewRequests = async (projectId, e) => {
-        e.stopPropagation();
+    const viewRequests = async (projectId, event) => {
+        event.stopPropagation();
         try {
-            const res = await fetch(`${API_BASE_URL}/api/projects/${projectId}/requests`);
-            const data = await res.json();
+            const data = await apiGet(`/api/projects/${projectId}/requests`);
             setRequests(data);
             setShowRequestsModal(projectId);
         } catch (err) {
@@ -116,270 +161,223 @@ export default function Dashboard() {
 
     const handleRequest = async (requestId, status) => {
         try {
-            const res = await fetch(`${API_BASE_URL}/api/projects/requests/${requestId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status })
-            });
-            if (res.ok) {
-                alert(status === 'approved' ? '已批准！' : '已拒绝！');
-                viewRequests(showRequestsModal, { stopPropagation: () => { } });
-                loadProjects(user.id);
-            }
+            await apiPut(`/api/projects/requests/${requestId}`, { status });
+            alert(status === 'approved' ? '已批准！' : '已拒绝！');
+            viewRequests(showRequestsModal, { stopPropagation: () => {} });
+            loadProjects(user.id);
         } catch (err) {
             alert('操作失败: ' + err.message);
         }
     };
 
-    const ProjectCard = ({ project, type }) => (
-        <div
-            className="glass"
-            onClick={() => navigate(`/editor/${project.id}`)}
-            style={{
-                height: '150px',
-                padding: '1.5rem',
-                cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                position: 'relative'
-            }}
-        >
-            {type === 'my' && (
-                <>
-                    <button
-                        onClick={(e) => deleteProject(project.id, project.name, e)}
-                        style={{
-                            position: 'absolute',
-                            top: '8px',
-                            right: '8px',
-                            background: 'rgba(239, 68, 68, 0.2)',
-                            border: 'none',
-                            color: '#ef4444',
-                            cursor: 'pointer',
-                            fontSize: '1.2rem',
-                            width: '28px',
-                            height: '28px',
-                            borderRadius: '50%',
-                            opacity: 0.6,
-                            transition: 'all 0.2s'
-                        }}
-                        title="删除项目"
-                    >
-                        ×
-                    </button>
-                    {project.pending_requests > 0 && (
-                        <button
-                            onClick={(e) => viewRequests(project.id, e)}
-                            style={{
-                                position: 'absolute',
-                                top: '8px',
-                                right: '44px',
-                                background: 'var(--accent-primary)',
-                                border: 'none',
-                                color: 'white',
-                                cursor: 'pointer',
-                                fontSize: '0.75rem',
-                                padding: '4px 8px',
-                                borderRadius: 'var(--radius-sm)',
-                                fontWeight: 'bold'
-                            }}
-                            title="查看申请"
-                        >
-                            {project.pending_requests} 个申请
-                        </button>
-                    )}
-                </>
-            )}
-            {type === 'available' && (
-                <button
-                    onClick={(e) => requestJoin(project.id, e)}
-                    disabled={project.request_status === 'pending'}
-                    style={{
-                        position: 'absolute',
-                        top: '8px',
-                        right: '8px',
-                        background: project.request_status === 'pending' ? 'var(--text-secondary)' : 'var(--accent-primary)',
-                        border: 'none',
-                        color: 'white',
-                        cursor: project.request_status === 'pending' ? 'not-allowed' : 'pointer',
-                        fontSize: '0.8rem',
-                        padding: '6px 12px',
-                        borderRadius: 'var(--radius-sm)'
-                    }}
-                    title={project.request_status === 'pending' ? '待审批' : '申请加入'}
-                >
-                    {project.request_status === 'pending' ? '待审批' : '申请加入'}
-                </button>
-            )}
-            <h3 style={{ color: 'var(--text-primary)', marginTop: type !== 'collaborated' ? '24px' : '0' }}>
-                {project.name}
-            </h3>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                {new Date(project.created_at).toLocaleDateString()}
+    const renderProjectCard = (project, type) => {
+        const tone = getProjectCardTone(type);
+
+        return (
+            <div
+                key={project.id}
+                className="project-card glass dashboard-card-industrial"
+                onClick={() => navigate(`/editor/${project.id}`)}
+                style={{ cursor: 'pointer' }}
+            >
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'flex-start' }}>
+                    <div style={{ display: 'grid', gap: '0.45rem' }}>
+                        <span className="project-badge" style={{ color: tone.accent }}>{tone.badge}</span>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>PROJECT #{project.id}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        {type === 'my' && Number(project.pending_requests || 0) > 0 && (
+                            <button className="btn" onClick={(event) => viewRequests(project.id, event)} style={{ padding: '0.45rem 0.75rem', minHeight: 'unset' }}>
+                                {project.pending_requests} 申请
+                            </button>
+                        )}
+                        {type === 'available' && (
+                            <button
+                                className="btn"
+                                onClick={(event) => requestJoin(project.id, event)}
+                                disabled={project.request_status === 'pending'}
+                                style={{ padding: '0.45rem 0.75rem', minHeight: 'unset' }}
+                            >
+                                {project.request_status === 'pending' ? '待审批' : '申请加入'}
+                            </button>
+                        )}
+                        {type === 'my' && (
+                            <button className="btn" onClick={(event) => deleteProject(project.id, project.name, event)} style={{ padding: '0.45rem 0.75rem', minHeight: 'unset', color: 'var(--accent-danger)' }}>
+                                删除
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                <div style={{ position: 'relative', zIndex: 1, display: 'grid', gap: '0.85rem' }}>
+                    <div>
+                        <h3 className="panel-heading" style={{ fontSize: '1.3rem', lineHeight: 1.05, marginBottom: '0.55rem' }}>{project.name}</h3>
+                        <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                            {type === 'my' ? '你拥有完整控制权，可以继续保存、对比和审批协作申请。' : type === 'collaborated' ? '继续参与当前项目的结构设计与迭代。' : '浏览共享项目并发起加入申请。'}
+                        </p>
+                    </div>
+                    <div className="project-meta">
+                        <span className="project-badge">创建于 {formatDateLabel(project.created_at)}</span>
+                        <span className="project-badge">{tone.note}</span>
+                    </div>
+                </div>
             </div>
-        </div>
+        );
+    };
+
+    const renderProjectSection = (title, description, projects, type) => (
+        <section className="dashboard-section">
+            <div className="dashboard-section-head">
+                <div>
+                    <h2 className="panel-heading" style={{ fontSize: '1.08rem', marginBottom: '0.32rem' }}>{title}</h2>
+                    <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>{description}</p>
+                </div>
+                <div className="project-badge">{projects.length} 个项目</div>
+            </div>
+
+            {projects.length === 0 ? (
+                <div className="dashboard-empty">
+                    {searchTerm.trim() ? '当前筛选条件下没有项目。' : '这里还没有内容，继续创建或加入项目吧。'}
+                </div>
+            ) : (
+                <div className="project-grid">
+                    {projects.map((project) => renderProjectCard(project, type))}
+                </div>
+            )}
+        </section>
     );
 
     return (
-        <div style={{ padding: '2rem', minHeight: '100vh', background: 'var(--bg-gradient)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-                <h1 style={{ color: 'var(--accent-primary)' }}>我的项目</h1>
-                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>{user?.username}</span>
-                    <button
-                        className="btn"
-                        onClick={() => { localStorage.removeItem('user'); navigate('/login'); }}
-                    >
-                        退出
-                    </button>
-                </div>
+        <div className="dashboard-page dashboard-industrial">
+            <div className="dashboard-shell">
+                <section className="dashboard-hero glass dashboard-hero-industrial">
+                    <div className="dashboard-hero-industrial-head">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                            <Logo size={34} showText={true} />
+                            <span className="ui-kicker">Schema Control Console</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <span className="project-badge">{user?.username}</span>
+                            <button className="btn" onClick={() => { clearStoredUser(); navigate('/login'); }}>退出</button>
+                        </div>
+                    </div>
+
+                    <div className="dashboard-grid dashboard-grid-industrial">
+                        <div style={{ display: 'grid', gap: '1rem' }}>
+                            <div>
+                                <h1 className="panel-heading" style={{ fontSize: '2.7rem', lineHeight: 0.96, marginBottom: '0.7rem' }}>
+                                    数据库工作台
+                                </h1>
+                                <p style={{ maxWidth: '48rem', color: 'var(--text-secondary)', lineHeight: 1.85 }}>
+                                    简洁地管理项目、协作、版本和结构设计，不做额外装饰，只保留真正有用的操作面。
+                                </p>
+                            </div>
+
+                            <div className="dashboard-command-row">
+                                <button className="btn btn-primary" onClick={openCreateModal}>+ 新建项目</button>
+                                <button className="btn" onClick={() => recentProjectId && navigate(`/editor/${recentProjectId}`)} disabled={!recentProjectId}>打开最近编辑器</button>
+                                <div className="dashboard-search-shell">
+                                    <input
+                                        value={searchTerm}
+                                        onChange={(event) => setSearchTerm(event.target.value)}
+                                        placeholder="搜索项目名"
+                                        className="dashboard-search-input"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="dashboard-stat-grid dashboard-stat-grid-industrial">
+                            {summaryStats.map((item) => (
+                                <div key={item.label} className="dashboard-stat-card dashboard-stat-card-industrial">
+                                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>{item.label}</div>
+                                    <div style={{ marginTop: '0.45rem', fontSize: '1.9rem', fontWeight: '800', color: item.accent }}>
+                                        {item.value}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+
+                {renderProjectSection('我创建的项目', '用于主导数据建模、控制版本节奏与协作入口。', filteredSections.my, 'my')}
+                {renderProjectSection('我协作的项目', '继续参与他人发起的建模任务与数据库演进。', filteredSections.collaborated, 'collaborated')}
+                {renderProjectSection('可加入的项目', '浏览团队公开项目并申请加入。', filteredSections.available, 'available')}
             </div>
 
-            {/* 我创建的项目 */}
-            <section style={{ marginBottom: '3rem' }}>
-                <h2 style={{ color: 'var(--text-primary)', marginBottom: '1rem', fontSize: '1.2rem' }}>
-                    我创建的项目
-                </h2>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '1.5rem' }}>
-                    <div
-                        className="glass"
-                        onClick={createProject}
-                        style={{
-                            height: '150px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                            border: '2px dashed var(--glass-border)'
-                        }}
-                    >
-                        <div style={{ fontSize: '2rem', color: 'var(--accent-primary)' }}>+</div>
-                        <div style={{ color: 'var(--text-secondary)' }}>新建项目</div>
+            {showCreateModal && (
+                <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
+                    <div className="modal-content glass" onClick={(event) => event.stopPropagation()} style={{ width: '520px', maxWidth: '94vw', borderRadius: '22px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                            <div>
+                                <span className="ui-kicker">Create Project</span>
+                                <h2 className="panel-heading" style={{ fontSize: '1.24rem', margin: '0.65rem 0 0.3rem' }}>新建数据库项目</h2>
+                                <p style={{ color: 'var(--text-secondary)', lineHeight: 1.65 }}>输入项目名称后直接进入编辑器。</p>
+                            </div>
+                            <button className="btn" onClick={() => setShowCreateModal(false)}>&times;</button>
+                        </div>
+
+                        <input
+                            value={newProjectName}
+                            onChange={(event) => setNewProjectName(event.target.value)}
+                            placeholder="例如：会员中心、订单平台、资产台账"
+                            className="ui-input"
+                            autoFocus
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' && !createLoading) {
+                                    createProject();
+                                }
+                            }}
+                        />
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.15rem' }}>
+                            <button className="btn" onClick={() => setShowCreateModal(false)} disabled={createLoading}>取消</button>
+                            <button className="btn btn-primary" onClick={createProject} disabled={createLoading}>
+                                {createLoading ? '创建中...' : '创建并进入'}
+                            </button>
+                        </div>
                     </div>
-                    {myProjects.map(p => <ProjectCard key={p.id} project={p} type="my" />)}
                 </div>
-            </section>
+            )}
 
-            {/* 我协作的项目 */}
-            <section style={{ marginBottom: '3rem' }}>
-                <h2 style={{ color: 'var(--text-primary)', marginBottom: '1rem', fontSize: '1.2rem' }}>
-                    我协作的项目
-                </h2>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '1.5rem' }}>
-                    {collaboratedProjects.length === 0 ? (
-                        <div style={{ color: 'var(--text-secondary)', padding: '2rem' }}>暂无协作项目</div>
-                    ) : (
-                        collaboratedProjects.map(p => <ProjectCard key={p.id} project={p} type="collaborated" />)
-                    )}
-                </div>
-            </section>
-
-            {/* 未参与的项目 */}
-            <section>
-                <h2 style={{ color: 'var(--text-primary)', marginBottom: '1rem', fontSize: '1.2rem' }}>
-                    未参与的项目
-                </h2>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '1.5rem' }}>
-                    {availableProjects.length === 0 ? (
-                        <div style={{ color: 'var(--text-secondary)', padding: '2rem' }}>暂无可加入的项目</div>
-                    ) : (
-                        availableProjects.map(p => <ProjectCard key={p.id} project={p} type="available" />)
-                    )}
-                </div>
-            </section>
-
-            {/* 申请列表弹窗 */}
             {showRequestsModal && (
-                <div
-                    style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        background: 'rgba(0,0,0,0.7)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        zIndex: 1000
-                    }}
-                    onClick={() => setShowRequestsModal(null)}
-                >
-                    <div
-                        className="glass"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                            width: '500px',
-                            maxHeight: '80vh',
-                            overflow: 'auto',
-                            padding: '2rem',
-                            borderRadius: 'var(--radius-lg)'
-                        }}
-                    >
-                        <h2 style={{ color: 'var(--text-primary)', marginBottom: '1.5rem' }}>加入申请</h2>
-                        {requests.length === 0 ? (
-                            <p style={{ color: 'var(--text-secondary)' }}>暂无申请</p>
-                        ) : (
-                            requests.map(req => (
-                                <div
-                                    key={req.id}
-                                    style={{
-                                        padding: '1rem',
-                                        marginBottom: '1rem',
-                                        background: 'rgba(255,255,255,0.05)',
-                                        borderRadius: 'var(--radius-md)',
-                                        border: '1px solid var(--glass-border)'
-                                    }}
-                                >
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                                        <strong style={{ color: 'var(--text-primary)' }}>{req.username}</strong>
-                                        <span style={{
-                                            fontSize: '0.8rem',
-                                            color: req.status === 'pending' ? 'var(--accent-primary)' :
-                                                req.status === 'approved' ? '#10b981' : '#ef4444'
-                                        }}>
-                                            {req.status === 'pending' ? '待审批' :
-                                                req.status === 'approved' ? '已批准' : '已拒绝'}
-                                        </span>
-                                    </div>
-                                    {req.message && (
-                                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-                                            {req.message}
-                                        </p>
-                                    )}
-                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
-                                        {new Date(req.created_at).toLocaleString()}
-                                    </div>
-                                    {req.status === 'pending' && (
-                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                            <button
-                                                className="btn"
-                                                onClick={() => handleRequest(req.id, 'approved')}
-                                                style={{ flex: 1, background: '#10b981' }}
-                                            >
-                                                批准
-                                            </button>
-                                            <button
-                                                className="btn"
-                                                onClick={() => handleRequest(req.id, 'rejected')}
-                                                style={{ flex: 1, background: '#ef4444' }}
-                                            >
-                                                拒绝
-                                            </button>
+                <div className="modal-overlay" onClick={() => setShowRequestsModal(null)}>
+                    <div className="modal-content glass" onClick={(event) => event.stopPropagation()} style={{ width: '620px', maxHeight: '82vh', borderRadius: '22px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                            <div>
+                                <span className="ui-kicker">Access Requests</span>
+                                <h2 className="panel-heading" style={{ fontSize: '1.18rem', margin: '0.6rem 0 0.28rem' }}>协作申请</h2>
+                                <p style={{ color: 'var(--text-secondary)' }}>审批其他成员加入你创建的项目。</p>
+                            </div>
+                            <button className="btn" onClick={() => setShowRequestsModal(null)}>&times;</button>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', overflowY: 'auto' }}>
+                            {requests.length === 0 ? (
+                                <div className="dashboard-empty">暂无申请</div>
+                            ) : (
+                                requests.map((req) => (
+                                    <div key={req.id} className="ui-card" style={{ padding: '1rem', borderRadius: '16px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', marginBottom: '0.55rem' }}>
+                                            <strong style={{ color: 'var(--text-primary)' }}>{req.username}</strong>
+                                            <span className="project-badge" style={{ color: req.status === 'pending' ? 'var(--accent-secondary)' : req.status === 'approved' ? 'var(--accent-success)' : 'var(--accent-danger)' }}>
+                                                {req.status === 'pending' ? '待审批' : req.status === 'approved' ? '已批准' : '已拒绝'}
+                                            </span>
                                         </div>
-                                    )}
-                                </div>
-                            ))
-                        )}
-                        <button
-                            className="btn"
-                            onClick={() => setShowRequestsModal(null)}
-                            style={{ width: '100%', marginTop: '1rem' }}
-                        >
-                            关闭
-                        </button>
+                                        {req.message && <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '0.55rem' }}>{req.message}</p>}
+                                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: req.status === 'pending' ? '0.8rem' : 0 }}>
+                                            {new Date(req.created_at).toLocaleString()}
+                                        </div>
+                                        {req.status === 'pending' && (
+                                            <div style={{ display: 'flex', gap: '0.6rem' }}>
+                                                <button className="btn" style={{ flex: 1, color: 'var(--accent-success)' }} onClick={() => handleRequest(req.id, 'approved')}>批准</button>
+                                                <button className="btn" style={{ flex: 1, color: 'var(--accent-danger)' }} onClick={() => handleRequest(req.id, 'rejected')}>拒绝</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))
+                            )}
+                        </div>
                     </div>
                 </div>
             )}

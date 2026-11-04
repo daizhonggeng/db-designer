@@ -332,13 +332,16 @@ const Canvas = forwardRef((props, ref) => {
     return (
         <div
             ref={containerRef}
-            className="canvas"
+            className="canvas glass"
             style={{
                 flex: 1,
                 position: 'relative',
                 overflow: 'hidden',
-                background: 'var(--bg-dark)',
-                outline: 'none'
+                background: 'linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015)), rgba(3, 12, 18, 0.5)',
+                outline: 'none',
+                borderRadius: '28px',
+                border: '1px solid var(--glass-border)',
+                boxShadow: 'var(--shadow-lg)'
             }}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
@@ -357,12 +360,35 @@ const Canvas = forwardRef((props, ref) => {
                 />
             )}
 
+            <div style={{
+                position: 'absolute',
+                top: '16px',
+                right: '18px',
+                zIndex: 80,
+                display: 'flex',
+                gap: '0.5rem',
+                flexWrap: 'wrap',
+                justifyContent: 'flex-end'
+            }}>
+                <span className="project-badge">拖拽表卡</span>
+                <span className="project-badge">右键菜单</span>
+                <span className="project-badge">Ctrl+Z / Ctrl+Y</span>
+            </div>
+
             {/* Zoom Controls */}
             <div style={{
-                position: 'absolute', bottom: '20px', right: '20px', zIndex: 100,
-                display: 'flex', flexDirection: 'column', gap: '8px',
-                background: 'var(--bg-panel)', padding: '8px', borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--glass-border)'
+                position: 'absolute',
+                bottom: '20px',
+                right: '20px',
+                zIndex: 100,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                background: 'rgba(9, 25, 34, 0.84)',
+                padding: '10px',
+                borderRadius: '18px',
+                border: '1px solid var(--glass-border)',
+                boxShadow: 'var(--shadow-sm)'
             }}>
                 <button className="btn" onClick={zoomIn}>+</button>
                 <button className="btn" onClick={resetZoom} style={{ fontSize: '12px' }}>{Math.round(zoom * 100)}%</button>
@@ -377,8 +403,12 @@ const Canvas = forwardRef((props, ref) => {
                     transformOrigin: '0 0',
                     transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                     cursor: isPanning ? 'grabbing' : (draggingId ? 'grabbing' : 'default'),
-                    background: 'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.08) 1px, transparent 0)',
-                    backgroundSize: `${SNAP_SIZE}px ${SNAP_SIZE}px`, // Grid matches snap size
+                    backgroundImage: `
+                        radial-gradient(circle at 1px 1px, rgba(255,255,255,0.07) 1px, transparent 0),
+                        linear-gradient(180deg, rgba(90, 209, 195, 0.045), transparent 24%),
+                        radial-gradient(circle at top right, rgba(242, 182, 109, 0.08), transparent 22%)
+                    `,
+                    backgroundSize: `${SNAP_SIZE}px ${SNAP_SIZE}px, auto, auto`,
                     backgroundPosition: `${pan.x}px ${pan.y}px`
                 }}
             >
@@ -395,7 +425,7 @@ const Canvas = forwardRef((props, ref) => {
                             <path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444" />
                         </marker>
                         <marker id="arrow-highlight" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                            <path d="M 0 0 L 10 5 L 0 10 z" fill="#a855f7" />
+                            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent-primary)" />
                         </marker>
                     </defs>
 
@@ -451,7 +481,7 @@ const Canvas = forwardRef((props, ref) => {
                                 <path d={path} stroke="transparent" strokeWidth="15" fill="none" />
                                 <path
                                     d={path}
-                                    stroke={isSelected ? "#ef4444" : (isHighlighted ? "#a855f7" : "var(--accent-secondary)")}
+                                    stroke={isSelected ? "#ef4444" : (isHighlighted ? "var(--accent-primary)" : "var(--accent-secondary)")}
                                     strokeWidth={isSelected || isHighlighted ? "3" : "2"}
                                     fill="none"
                                     opacity={isSelected || isHighlighted ? "1" : "0.6"}

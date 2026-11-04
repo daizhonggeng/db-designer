@@ -27,3 +27,11 @@ dist-ssr
 .env
 .env.*
 server/.env
+!.env.example
+!server/.env.example
+
+# Local SQLite data and journals
+server/data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

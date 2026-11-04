@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSchema } from '../store/schemaStore';
 import { useTheme } from '../store/themeStore';
@@ -7,10 +7,33 @@ import AIModal from './AIModal';
 import VersionHistoryModal from './VersionHistoryModal';
 import ExportModal from './ExportModal';
 import ReverseEngineeringModal from './ReverseEngineeringModal';
+import SchemaValidationModal from './SchemaValidationModal';
+import SchemaDiffModal from './SchemaDiffModal';
 import Toast from './Toast';
 import * as htmlToImage from 'html-to-image';
-import { API_BASE_URL } from '../config';
+import { apiPost, apiPut } from '../services/api';
+import { getStoredUser } from '../utils/storage';
+import { validateSchema } from '../utils/schema';
 import Logo from './Logo';
+
+function DropdownPanel({ children }) {
+    return (
+        <div className="glass" style={{
+            position: 'absolute',
+            top: 'calc(100% + 10px)',
+            left: 0,
+            padding: '0.45rem',
+            borderRadius: '18px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.35rem',
+            minWidth: '170px',
+            zIndex: 1200,
+        }}>
+            {children}
+        </div>
+    );
+}
 
 export default function TopBar({ projectId }) {
     const navigate = useNavigate();
@@ -21,6 +44,8 @@ export default function TopBar({ projectId }) {
     const [showHistory, setShowHistory] = useState(false);
     const [showExportModal, setShowExportModal] = useState(false);
     const [showRevEng, setShowRevEng] = useState(false);
+    const [showValidationModal, setShowValidationModal] = useState(false);
+    const [showDiffModal, setShowDiffModal] = useState(false);
     const [saving, setSaving] = useState(false);
     const [showLayoutMenu, setShowLayoutMenu] = useState(false);
     const [showDbMenu, setShowDbMenu] = useState(false);
@@ -28,7 +53,15 @@ export default function TopBar({ projectId }) {
     const [showExportMenu, setShowExportMenu] = useState(false);
     const [toast, setToast] = useState(null);
 
+    const validation = useMemo(() => validateSchema(state), [state]);
+    const stats = useMemo(() => {
+        const tableCount = state.tables.length;
+        const fieldCount = state.tables.reduce((total, table) => total + table.columns.length, 0);
+        const indexCount = state.tables.reduce((total, table) => total + (table.indexes?.length || 0), 0);
+        const constraintCount = state.tables.reduce((total, table) => total + (table.constraints?.length || 0), 0);
 
+        return { tableCount, fieldCount, indexCount, constraintCount };
+    }, [state.tables]);
 
     const handleLayout = (direction) => {
         dispatch({ type: 'AUTO_LAYOUT', payload: direction });
@@ -39,119 +72,81 @@ export default function TopBar({ projectId }) {
         dispatch({ type: 'IMPORT_SCHEMA', payload: schema });
     };
 
-
     const saveProject = async () => {
         setSaving(true);
         try {
-            // 1. Save Project (Current State)
-            const res = await fetch(`${API_BASE_URL}/api/projects/${projectId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ schema: state })
-            });
-
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => ({ error: '保存失败' }));
-                throw new Error(errorData.error || '保存项目失败');
+            if (!validation.summary.isValid) {
+                setShowValidationModal(true);
+                throw new Error(`发现 ${validation.summary.errorCount} 个结构错误，请先修复`);
             }
 
-            // 2. Create Version Automatically
-            const user = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')).username : 'Unknown';
-            const versionRes = await fetch(`${API_BASE_URL}/api/projects/${projectId}/versions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    schema: state,
-                    user,
-                    description: ''
-                })
-            });
+            await apiPut(`/api/projects/${projectId}`, { schema: state });
 
-            if (!versionRes.ok) {
-                const errorData = await versionRes.json().catch(() => ({ error: '创建版本失败' }));
-                throw new Error(errorData.error || '创建版本失败');
-            }
+            const currentUser = getStoredUser();
+            await apiPost(`/api/projects/${projectId}/versions`, {
+                schema: state,
+                user: currentUser?.username || 'Unknown',
+                description: '',
+            });
 
             setToast({ message: '保存成功！已生成新版本。', type: 'success' });
-        } catch (err) {
-            console.error('Save error:', err);
-            setToast({ message: '保存失败: ' + err.message, type: 'error' });
+        } catch (error) {
+            console.error('Save error:', error);
+            setToast({ message: '保存失败: ' + error.message, type: 'error' });
         } finally {
             setSaving(false);
         }
-    };
-
-    const addTable = () => {
-        dispatch({ type: 'ADD_TABLE' });
-    };
-
-    const exportSQL = () => {
-        setShowExportModal(true);
     };
 
     const handleExport = async (format = 'png') => {
         const canvasElement = document.getElementById('canvas-content');
         if (!canvasElement) return;
 
-        // 1. Calculate Bounding Box of all elements
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
 
-        // Check tables
-        state.tables.forEach(t => {
-            minX = Math.min(minX, t.position.x);
-            minY = Math.min(minY, t.position.y);
-            maxX = Math.max(maxX, t.position.x + (t.width || 240));
-            maxY = Math.max(maxY, t.position.y + (t.height || 300)); // Estimate height if missing
+        state.tables.forEach((table) => {
+            minX = Math.min(minX, table.position.x);
+            minY = Math.min(minY, table.position.y);
+            maxX = Math.max(maxX, table.position.x + (table.width || 240));
+            maxY = Math.max(maxY, table.position.y + (table.height || 300));
         });
 
-        // Check bookmarks
-        state.bookmarks?.forEach(b => {
-            minX = Math.min(minX, b.x);
-            minY = Math.min(minY, b.y);
-            maxX = Math.max(maxX, b.x + b.width);
-            maxY = Math.max(maxY, b.y + b.height);
+        state.bookmarks?.forEach((bookmark) => {
+            minX = Math.min(minX, bookmark.x);
+            minY = Math.min(minY, bookmark.y);
+            maxX = Math.max(maxX, bookmark.x + bookmark.width);
+            maxY = Math.max(maxY, bookmark.y + bookmark.height);
         });
 
-        // Add padding
-        const padding = 50;
-        minX -= padding;
-        minY -= padding;
-        maxX += padding;
-        maxY += padding;
-
-        const width = maxX - minX;
-        const height = maxY - minY;
-
-        // If no elements, default to current view
         if (minX === Infinity) {
-            alert("画布为空，无法导出");
+            alert('画布为空，无法导出');
             return;
         }
 
+        const padding = 60;
+        const width = maxX - minX + padding * 2;
+        const height = maxY - minY + padding * 2;
+
         try {
             const options = {
-                backgroundColor: theme === 'light' ? '#f8fafc' : '#1a1a1a',
-                width: width,
-                height: height,
+                backgroundColor: theme === 'light' ? '#f7f6ef' : '#07141b',
+                width,
+                height,
                 style: {
-                    transform: `translate(${-minX}px, ${-minY}px)`,
-                    transformOrigin: 'top left'
+                    transform: `translate(${-(minX - padding)}px, ${-(minY - padding)}px)`,
+                    transformOrigin: 'top left',
                 },
-                filter: (node) => {
-                    // Exclude elements that might cause issues or are not needed
-                    return node.tagName !== 'i';
-                },
+                filter: (node) => node.tagName !== 'i',
                 skipFonts: true,
-                pixelRatio: 2
+                pixelRatio: 2,
             };
 
-            let dataUrl;
-            if (format === 'svg') {
-                // For SVG, we need to be careful with fonts and images
-                dataUrl = await htmlToImage.toSvg(canvasElement, options);
-            } else {
-                dataUrl = await htmlToImage.toPng(canvasElement, { ...options, pixelRatio: 2 });
-            }
+            const dataUrl = format === 'svg'
+                ? await htmlToImage.toSvg(canvasElement, options)
+                : await htmlToImage.toPng(canvasElement, options);
 
             const link = document.createElement('a');
             link.download = `schema-design-${new Date().getTime()}.${format}`;
@@ -165,285 +160,161 @@ export default function TopBar({ projectId }) {
 
     return (
         <>
-            <div
-                className="glass"
-                style={{
-                    position: 'absolute',
-                    top: 'var(--spacing-md)',
-                    left: 'calc(50% + 120px)', // Shift right to avoid sidebar
-                    transform: 'translateX(-50%)',
-                    padding: 'var(--spacing-sm) var(--spacing-lg)',
-                    display: 'flex',
-                    gap: 'var(--spacing-sm)', // Reduced gap
-                    borderRadius: 'var(--radius-full)',
-                    zIndex: 100,
-                    alignItems: 'center',
-                    flexWrap: 'nowrap', // Prevent wrapping
-                    whiteSpace: 'nowrap', // Prevent text wrapping
-                    maxWidth: '95vw', // Ensure it fits on screen
-                    overflow: 'visible' // Allow dropdown to show
-                }}
-            >
-                <div
-                    style={{ marginRight: 'var(--spacing-md)', cursor: 'pointer' }}
-                    onClick={() => navigate('/dashboard')}
-                    title="返回仪表盘"
-                >
-                    <Logo size={24} showText={true} />
-                </div>
+            <div className="topbar-shell">
+                <div className="topbar-main glass">
+                    <div className="topbar-row">
+                        <div className="topbar-brand">
+                            <div onClick={() => navigate('/dashboard')} title="返回仪表盘">
+                                <Logo size={28} showText={true} />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.28rem' }}>
+                                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+                                    Schema Control Deck
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flexWrap: 'wrap' }}>
+                                    <span className="project-badge">项目 #{projectId}</span>
+                                    <span className="project-badge" style={{
+                                        color: validation.summary.isValid ? 'var(--accent-success)' : 'var(--accent-danger)',
+                                        borderColor: validation.summary.isValid ? 'rgba(116, 221, 152, 0.24)' : 'rgba(255, 122, 112, 0.24)',
+                                        background: validation.summary.isValid ? 'rgba(116, 221, 152, 0.12)' : 'rgba(255, 122, 112, 0.12)',
+                                    }}>
+                                        {validation.summary.isValid ? '结构健康' : `${validation.summary.errorCount} 错误`}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
 
-                <button className="btn" onClick={toggleTheme} title={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}>
-                    {theme === 'dark' ? '☀️' : '🌙'}
-                </button>
-
-                <button className="btn" onClick={() => setShowHistory(true)}>
-                    🕒 历史
-                </button>
-
-                <button
-                    className="btn"
-                    onClick={saveProject}
-                    disabled={saving}
-                >
-                    {saving ? '保存中...' : '💾 保存'}
-                </button>
-
-                <button
-                    className="btn"
-                    onClick={() => setShowAI(true)}
-                    style={{
-                        background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
-                        border: 'none',
-                        color: 'white',
-                        fontWeight: 'bold',
-                        boxShadow: '0 0 15px rgba(168, 85, 247, 0.4)'
-                    }}
-                >
-                    ✨ AI 设计
-                </button>
-
-                <div style={{ position: 'relative' }}>
-                    <button
-                        className="btn"
-                        onClick={() => setShowLayoutMenu(!showLayoutMenu)}
-                        title="自动整理布局"
-                    >
-                        🧩 自动布局
-                    </button>
-                    {showLayoutMenu && (
-                        <div className="glass" style={{
-                            position: 'absolute',
-                            top: '100%',
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            marginTop: '8px',
-                            display: 'flex',
-                            flexDirection: 'row', // Horizontal layout
-                            gap: '8px',
-                            padding: '8px',
-                            borderRadius: '8px',
-                            zIndex: 9999,
-                            background: 'var(--bg-panel)',
-                            border: '1px solid var(--glass-border)'
-                        }}>
-                            <button className="btn" onClick={() => handleLayout('LR')} title="从左到右">
-                                ➡️
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                            <button className="btn" onClick={toggleTheme} title={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}>
+                                {theme === 'dark' ? '☀️ 亮色' : '🌙 暗色'}
                             </button>
-                            <button className="btn" onClick={() => handleLayout('TB')} title="从上到下">
-                                ⬇️
+                            <button className="btn" onClick={() => setShowHistory(true)}>
+                                🕒 历史
                             </button>
-                            <button className="btn" onClick={() => handleLayout('RL')} title="从右到左">
-                                ⬅️
+                            <button className="btn" onClick={() => setShowValidationModal(true)}>
+                                🩺 体检
                             </button>
-                            <button className="btn" onClick={() => handleLayout('BT')} title="从下到上">
-                                ⬆️
+                            <button className="btn" onClick={() => setShowDiffModal(true)}>
+                                Δ Diff
+                            </button>
+                            <button className="btn btn-primary" onClick={saveProject} disabled={saving}>
+                                {saving ? '保存中...' : '保存项目'}
                             </button>
                         </div>
-                    )}
-                </div>
+                    </div>
 
-                <div style={{ width: '1px', height: '20px', background: 'var(--glass-border)', flexShrink: 0 }}></div>
-
-                <button
-                    className="btn"
-                    onClick={() => dispatch({ type: 'UNDO' })}
-                    disabled={state.past.length === 0}
-                    title="撤销 (Ctrl+Z)"
-                    style={{ opacity: state.past.length === 0 ? 0.5 : 1, cursor: state.past.length === 0 ? 'not-allowed' : 'pointer' }}
-                >
-                    ↩️
-                </button>
-                <button
-                    className="btn"
-                    onClick={() => dispatch({ type: 'REDO' })}
-                    disabled={state.future.length === 0}
-                    title="重做 (Ctrl+Y)"
-                    style={{ opacity: state.future.length === 0 ? 0.5 : 1, cursor: state.future.length === 0 ? 'not-allowed' : 'pointer' }}
-                >
-                    ↪️
-                </button>
-
-                <div style={{ width: '1px', height: '20px', background: 'var(--glass-border)', flexShrink: 0 }}></div>
-
-                <div style={{ width: '1px', height: '20px', background: 'var(--glass-border)', flexShrink: 0 }}></div>
-
-                {/* 新增按钮组 */}
-                <div style={{ position: 'relative' }}>
-                    <button
-                        className="btn"
-                        onClick={() => setShowAddMenu(!showAddMenu)}
-                        title="新增对象"
-                        style={{ display: 'flex', gap: '4px' }}
-                    >
-                        ➕ 新增
-                    </button>
-                    {showAddMenu && (
-                        <div className="glass" style={{
-                            position: 'absolute',
-                            top: '100%',
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            marginTop: '8px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '4px',
-                            padding: '8px',
-                            borderRadius: '8px',
-                            zIndex: 9999,
-                            background: 'var(--bg-panel)',
-                            border: '1px solid var(--glass-border)',
-                            minWidth: '100px'
-                        }}>
-                            <button className="btn" onClick={() => { addTable(); setShowAddMenu(false); }} style={{ justifyContent: 'flex-start' }}>
-                                + 表
-                            </button>
-                            <button className="btn" onClick={() => { dispatch({ type: 'ADD_BOOKMARK' }); setShowAddMenu(false); }} style={{ justifyContent: 'flex-start' }}>
-                                + 书签
-                            </button>
+                    <div className="topbar-row">
+                        <div className="topbar-stats">
+                            <span className="topbar-badge">表 {stats.tableCount}</span>
+                            <span className="topbar-badge">字段 {stats.fieldCount}</span>
+                            <span className="topbar-badge">索引 {stats.indexCount}</span>
+                            <span className="topbar-badge">约束 {stats.constraintCount}</span>
+                            <span className="topbar-badge">关系 {state.relationships.length}</span>
+                            <span className="topbar-badge">{dbDialect.toUpperCase()}</span>
                         </div>
-                    )}
-                </div>
 
-                <div style={{ width: '1px', height: '20px', background: 'var(--glass-border)', flexShrink: 0 }}></div>
+                        <div className="topbar-groups">
+                            <div className="topbar-group">
+                                <button className="btn" onClick={() => dispatch({ type: 'UNDO' })} disabled={state.past.length === 0} title="撤销 (Ctrl+Z)">
+                                    ↩️
+                                </button>
+                                <button className="btn" onClick={() => dispatch({ type: 'REDO' })} disabled={state.future.length === 0} title="重做 (Ctrl+Y)">
+                                    ↪️
+                                </button>
+                            </div>
 
-                {/* 数据库类型选择器 */}
-                <div style={{ position: 'relative' }}>
-                    <button
-                        className="btn"
-                        onClick={() => setShowDbMenu(!showDbMenu)}
-                        title="选择数据库类型"
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                        }}
-                    >
-                        🗄️ {dbDialect === 'mysql' ? 'MySQL' : dbDialect === 'postgresql' ? 'PostgreSQL' : 'Oracle'}
-                    </button>
-                    {showDbMenu && (
-                        <div className="glass" style={{
-                            position: 'absolute',
-                            top: '100%',
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            marginTop: '8px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '4px',
-                            padding: '8px',
-                            borderRadius: '8px',
-                            zIndex: 9999,
-                            background: 'var(--bg-panel)',
-                            border: '1px solid var(--glass-border)',
-                            minWidth: '140px'
-                        }}>
-                            <button
-                                className="btn"
-                                onClick={() => {
-                                    setDbDialect('mysql');
-                                    setShowDbMenu(false);
-                                }}
-                                style={{
-                                    background: dbDialect === 'mysql' ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
-                                    justifyContent: 'flex-start'
-                                }}
-                            >
-                                {dbDialect === 'mysql' ? '✓ ' : ''}MySQL
-                            </button>
-                            <button
-                                className="btn"
-                                onClick={() => {
-                                    setDbDialect('postgresql');
-                                    setShowDbMenu(false);
-                                }}
-                                style={{
-                                    background: dbDialect === 'postgresql' ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
-                                    justifyContent: 'flex-start'
-                                }}
-                            >
-                                {dbDialect === 'postgresql' ? '✓ ' : ''}PostgreSQL
-                            </button>
-                            <button
-                                className="btn"
-                                onClick={() => {
-                                    setDbDialect('oracle');
-                                    setShowDbMenu(false);
-                                }}
-                                style={{
-                                    background: dbDialect === 'oracle' ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
-                                    justifyContent: 'flex-start'
-                                }}
-                            >
-                                {dbDialect === 'oracle' ? '✓ ' : ''}Oracle
-                            </button>
+                            <div className="topbar-group" style={{ position: 'relative' }}>
+                                <button className="btn" onClick={() => setShowAddMenu(prev => !prev)}>
+                                    ➕ 新增
+                                </button>
+                                {showAddMenu && (
+                                    <DropdownPanel>
+                                        <button className="btn" onClick={() => { dispatch({ type: 'ADD_TABLE' }); setShowAddMenu(false); }} style={{ justifyContent: 'flex-start' }}>
+                                            + 新建表
+                                        </button>
+                                        <button className="btn" onClick={() => { dispatch({ type: 'ADD_BOOKMARK' }); setShowAddMenu(false); }} style={{ justifyContent: 'flex-start' }}>
+                                            + 新建书签
+                                        </button>
+                                    </DropdownPanel>
+                                )}
+                            </div>
+
+                            <div className="topbar-group" style={{ position: 'relative' }}>
+                                <button className="btn" onClick={() => setShowLayoutMenu(prev => !prev)}>
+                                    🧩 布局
+                                </button>
+                                {showLayoutMenu && (
+                                    <DropdownPanel>
+                                        <button className="btn" onClick={() => handleLayout('LR')} style={{ justifyContent: 'flex-start' }}>➡️ 从左到右</button>
+                                        <button className="btn" onClick={() => handleLayout('TB')} style={{ justifyContent: 'flex-start' }}>⬇️ 从上到下</button>
+                                        <button className="btn" onClick={() => handleLayout('RL')} style={{ justifyContent: 'flex-start' }}>⬅️ 从右到左</button>
+                                        <button className="btn" onClick={() => handleLayout('BT')} style={{ justifyContent: 'flex-start' }}>⬆️ 从下到上</button>
+                                    </DropdownPanel>
+                                )}
+                            </div>
+
+                            <div className="topbar-group" style={{ position: 'relative' }}>
+                                <button className="btn" onClick={() => setShowDbMenu(prev => !prev)}>
+                                    🗄️ 方言
+                                </button>
+                                {showDbMenu && (
+                                    <DropdownPanel>
+                                        {['mysql', 'postgresql', 'oracle'].map((dialect) => (
+                                            <button
+                                                key={dialect}
+                                                className="btn"
+                                                onClick={() => {
+                                                    setDbDialect(dialect);
+                                                    setShowDbMenu(false);
+                                                }}
+                                                style={{ justifyContent: 'space-between' }}
+                                            >
+                                                <span>{dialect === 'mysql' ? 'MySQL' : dialect === 'postgresql' ? 'PostgreSQL' : 'Oracle'}</span>
+                                                {dbDialect === dialect ? '✓' : ''}
+                                            </button>
+                                        ))}
+                                    </DropdownPanel>
+                                )}
+                            </div>
+
+                            <div className="topbar-group">
+                                <button className="btn" onClick={() => setShowRevEng(true)}>
+                                    📥 逆向
+                                </button>
+                                <button
+                                    className="btn"
+                                    onClick={() => setShowAI(true)}
+                                    style={{
+                                        background: 'linear-gradient(135deg, var(--accent-secondary), var(--accent-primary))',
+                                        color: '#04151a',
+                                        borderColor: 'transparent',
+                                        fontWeight: 700,
+                                    }}
+                                >
+                                    ✨ AI 设计
+                                </button>
+                            </div>
+
+                            <div className="topbar-group" style={{ position: 'relative' }}>
+                                <button className="btn" onClick={() => setShowExportMenu(prev => !prev)}>
+                                    📤 导出
+                                </button>
+                                {showExportMenu && (
+                                    <DropdownPanel>
+                                        <button className="btn" onClick={() => { setShowExportModal(true); setShowExportMenu(false); }} style={{ justifyContent: 'flex-start' }}>
+                                            SQL 导出
+                                        </button>
+                                        <button className="btn" onClick={() => { handleExport('png'); setShowExportMenu(false); }} style={{ justifyContent: 'flex-start' }}>
+                                            PNG 快照
+                                        </button>
+                                        <button className="btn" onClick={() => { handleExport('svg'); setShowExportMenu(false); }} style={{ justifyContent: 'flex-start' }}>
+                                            SVG 矢量图
+                                        </button>
+                                    </DropdownPanel>
+                                )}
+                            </div>
                         </div>
-                    )}
-                </div>
-
-                <div style={{ width: '1px', height: '20px', background: 'var(--glass-border)', flexShrink: 0 }}></div>
-
-                <button className="btn" onClick={() => setShowRevEng(true)} title="从数据库导入结构">
-                    📥 逆向
-                </button>
-
-                {/* 导出按钮组 */}
-                <div style={{ position: 'relative' }}>
-                    <button
-                        className="btn"
-                        onClick={() => setShowExportMenu(!showExportMenu)}
-                        title="导出项目"
-                        style={{ display: 'flex', gap: '4px' }}
-                    >
-                        📤 导出
-                    </button>
-                    {showExportMenu && (
-                        <div className="glass" style={{
-                            position: 'absolute',
-                            top: '100%',
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            marginTop: '8px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '4px',
-                            padding: '8px',
-                            borderRadius: '8px',
-                            zIndex: 9999,
-                            background: 'var(--bg-panel)',
-                            border: '1px solid var(--glass-border)',
-                            minWidth: '100px'
-                        }}>
-                            <button className="btn" onClick={() => { exportSQL(); setShowExportMenu(false); }} style={{ justifyContent: 'flex-start' }}>
-                                SQL
-                            </button>
-                            <button className="btn" onClick={() => { handleExport('png'); setShowExportMenu(false); }} style={{ justifyContent: 'flex-start' }}>
-                                📷 PNG
-                            </button>
-                            <button className="btn" onClick={() => { handleExport('svg'); setShowExportMenu(false); }} style={{ justifyContent: 'flex-start' }}>
-                                ✒️ SVG
-                            </button>
-                        </div>
-                    )}
+                    </div>
                 </div>
             </div>
 
@@ -461,9 +332,18 @@ export default function TopBar({ projectId }) {
                     onClose={() => setShowExportModal(false)}
                 />
             )}
-            {showRevEng && (
-                <ReverseEngineeringModal
-                    onClose={() => setShowRevEng(false)}
+            {showRevEng && <ReverseEngineeringModal onClose={() => setShowRevEng(false)} />}
+            {showValidationModal && (
+                <SchemaValidationModal
+                    schema={state}
+                    onClose={() => setShowValidationModal(false)}
+                />
+            )}
+            {showDiffModal && (
+                <SchemaDiffModal
+                    projectId={projectId}
+                    schema={state}
+                    onClose={() => setShowDiffModal(false)}
                 />
             )}
 
@@ -474,7 +354,6 @@ export default function TopBar({ projectId }) {
                     onClose={() => setToast(null)}
                 />
             )}
-
         </>
     );
 }

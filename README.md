@@ -1,108 +1,153 @@
 # DB Designer
 
-Web 端数据库设计工具，支持 AI 辅助设计和数据库逆向工程。
+一个基于 React + Vite + Express + SQLite 的 Web 数据库设计工具，支持可视化建模、AI 辅助建模、结构逆向导入和历史版本管理。
 
-## 功能特性
+## 这次整理后的重点改进
 
-*   **可视化设计**: 拖拽创建表，直观管理字段和关系。
-
-*   **AI 智能助手**: 通过自然语言描述生成表结构，或上传图片生成表结构。
-    
-    <img width="100%" alt="AI 助手图1" src="https://github.com/user-attachments/assets/81785b67-3936-4be4-b424-3643c8873929" />
-    <br/>
-    <img width="100%" alt="AI 助手图2" src="https://github.com/user-attachments/assets/3554f12f-faac-4e7f-8105-b8be45d10ad0" />
-
-*   **数据库逆向工程**:
-
-    *   **SQL 脚本导入**: 支持通过执行 SQL 脚本并粘贴 JSON 结果来导入 MySQL, Oracle, PostgreSQL 结构。
-        
-        <img width="100%" alt="脚本导入图" src="https://github.com/user-attachments/assets/affb1f49-8cc4-4672-a3c0-b4d4d7bfa061" />    
-
-    *   **直连导入**: 支持直接连接 PostgreSQL 数据库进行导入，目前默认是 public 模式。
-        
-        <img width="100%" alt="直连导入图" src="https://github.com/user-attachments/assets/6d1d655c-6ed7-416f-abb6-9bf018fd8621" />
-
-*   **版本管理**: 自动保存历史版本，支持回滚。
-    
-    <img width="100%" alt="版本管理图" src="https://github.com/user-attachments/assets/0f33d465-ce63-4bc5-8f65-345940b5d74e" />
-*   **导出功能**: 支持导出 SQL 文件、PNG 图片、SVG 矢量图。
-*   **多主题**: 支持亮色/暗色模式。
+- 登录注册不再使用明文密码比对，后端会对密码做哈希存储。
+- 前后端改成了统一的 API 调用层，去掉了前端写死的接口地址。
+- 项目、版本、申请审批等接口补上了鉴权和权限校验。
+- 增加了前后端环境变量示例、Vite 代理和更完整的脚本。
+- 清理了一批低质量实现，项目现在可以通过 `lint` 和前端生产构建。
 
 ## 技术栈
 
-*   **前端**: React, Vite, React Flow (Canvas)
-*   **后端**: Node.js, Express, PostgreSQL
-*   **AI**: Aliyun DashScope (Qwen-Max/Qwen-VL)
+- 前端：React 19、Vite
+- 后端：Node.js、Express、SQLite（Node.js 内置 `node:sqlite`）
+- AI：兼容 OpenAI 格式的聊天补全接口，默认示例为 DashScope
 
-## 快速开始
+## 目录结构
 
-### 1. 环境准备
-
-确保已安装：
-*   Node.js (v18+)
-*   PostgreSQL 数据库
-
-### 2. 配置环境变量
-
-复制 `.env.example` (如果存在) 或创建 `.env` 文件：
-
-**前端 (.env):**
+```text
+db-designer/
+  src/              前端源码
+  server/           后端服务与数据库初始化脚本
+  public/           静态资源
 ```
-VITE_AI_API_KEY=your_api_key
+
+## 环境要求
+
+- Node.js 22.16+（推荐 Node.js 24 LTS）
+- 无需安装数据库服务；PostgreSQL 驱动仅用于逆向导入外部数据库。
+
+## 环境变量
+
+### 前端
+
+复制根目录下的 `.env.example` 为 `.env`：
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:3000
+VITE_AI_API_KEY=
 VITE_AI_API_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
 VITE_AI_MODEL_TEXT=qwen3-max
 VITE_AI_MODEL_VISION=qwen3-vl-plus
-
-# 注意: 本项目默认使用通义千问的文字模型与视觉模型，也兼容 OpenAI 标准格式接口。
-# 如使用 OpenAI，请将 URL 改为 https://api.openai.com/v1/chat/completions 并修改模型名称。
 ```
 
-**后端 (server/.env):**
-```
-DB_USER=your_db_user
-DB_HOST=localhost
-DB_NAME=your_db_name
-DB_PASSWORD=your_db_password
-DB_PORT=5432
+说明：
+
+- 本地开发如果使用 Vite 代理，`VITE_API_BASE_URL` 也可以留空。
+- 若使用 OpenAI 兼容接口，请把 `VITE_AI_API_URL` 和模型名改成对应配置。
+
+### 后端
+
+复制 `server/.env.example` 为 `server/.env`：
+
+```env
+PORT=3000
+SQLITE_PATH=data/db-designer.sqlite
+AUTH_SECRET=change-this-to-a-random-long-string
+CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173
 ```
 
-### 3. 安装依赖
+`AUTH_SECRET` 请务必改成生产环境自己的长随机字符串。
 
-根目录 (前端):
+## 安装依赖
+
+根目录：
+
 ```bash
 npm install
 ```
 
-`server` 目录 (后端):
+后端目录：
+
 ```bash
 cd server
 npm install
 ```
 
-### 4. 启动项目
+## 初始化数据库
 
-根目录 (前端):
+后端首次启动会自动创建数据库文件和所需表，无需单独启动 PostgreSQL。默认文件为 `server/data/db-designer.sqlite`，已从 Git 排除。`SQLITE_PATH` 可指定绝对路径，或相对于 `server/` 的路径。备份时先停止后端，再复制数据库文件。
+
+如需提前初始化，可执行：
+
+```bash
+cd server
+npm run init-db
+```
+
+以下命令保留为 SQLite 幂等初始化入口，不会导入旧 PostgreSQL 数据：
+
+```bash
+npm run migrate
+npm run migrate:versions
+```
+
+## 启动开发环境
+
+启动后端：
+
+```bash
+cd server
+npm run dev
+```
+
+启动前端：
+
 ```bash
 npm run dev
 ```
 
-`server` 目录 (后端):
+默认情况下：
+
+- 前端开发地址：`http://127.0.0.1:5173`
+- 后端接口地址：`http://127.0.0.1:3000`
+
+## 常用脚本
+
+根目录：
+
 ```bash
-cd server
-npm start
+npm run dev
+npm run build
+npm run lint
+npm run server:dev
+npm run server:init-db
 ```
 
-## 🤝 团队协作
+后端目录：
 
-本工具支持简单的团队共享模式：
-申请加入非本人创建的项目，创建人同意后，即可与项目成员共同协作，版本管理中可以看到协作历史。
+```bash
+npm run dev
+npm run start
+npm run init-db
+npm run migrate
+npm run migrate:versions
+```
 
-1.  **团队访问**: 团队成员无需安装任何环境，直接通过浏览器访问服务器地址即可共同协作。
-2.  **注意事项**: 
-    *   当前采用**覆盖式保存**机制（Last Write Wins）。
-    *   建议在保存前查看**历史版本**，避免覆盖他人工作。
-    *   利用内置的**版本管理**功能，任何重大修改后系统会自动生成新版本，方便回滚。
+## 验证
 
-## 贡献
+- `npm run lint`
+- `npm run build`
+- `node --check server/index.js`
+- `node --check server/initDb.js`
+- `npm --prefix server test`：使用独立临时 SQLite 文件验证注册登录、项目与版本持久化、协作及级联删除。
 
-欢迎提交 Pull Request 或 Issue。
+## 仍需注意
+
+- 当前登录态使用的是轻量级服务端签名 token，适合内部工具和轻量部署；如果后续要对外公开，建议继续升级为标准会话或 JWT 方案。
+- 依赖安装后仍有 `npm audit` 报告的已知漏洞，后续可以单独做一轮依赖升级验证。
+- SQLite 切换不会自动迁移旧 PostgreSQL 数据；需要保留旧账号和项目时，应先单独迁移。
+- `node:sqlite` 在部分 Node.js 版本中会提示实验性 API 警告，不影响本地启动。
