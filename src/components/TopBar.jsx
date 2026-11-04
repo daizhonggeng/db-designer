@@ -3,7 +3,6 @@ import { useSchema } from '../store/schemaStore';
 import { useTheme } from '../store/themeStore';
 import { useSettings } from '../store/settingsStore';
 import AIModal from './AIModal';
-import AISettingsModal from './AISettingsModal';
 import ProjectPresetModal from './ProjectPresetModal';
 import PDMImportModal from './PDMImportModal';
 import VersionHistoryModal from './VersionHistoryModal';
@@ -28,7 +27,6 @@ export default function TopBar({ projectId, session, onBack, onToggleSidebar }) 
     const { theme, toggleTheme } = useTheme();
     const { dbDialect, setDbDialect } = useSettings();
     const [showAI, setShowAI] = useState(false);
-    const [showAISettings, setShowAISettings] = useState(false);
     const [showPreset, setShowPreset] = useState(false);
     const [showPDMImport, setShowPDMImport] = useState(false);
     const [showHistory, setShowHistory] = useState(false);
@@ -183,7 +181,6 @@ export default function TopBar({ projectId, session, onBack, onToggleSidebar }) 
                 <button className="btn btn-ghost" onClick={() => setShowRevEng(true)}><Icon name="upload" size={15} />数据库导入</button>
                 <button className="btn btn-ghost" onClick={() => setShowPDMImport(true)} title="导入 PowerDesigner 物理模型"><Icon name="upload" size={15} />导入 PDM</button>
                 <button className="btn btn-ghost" onClick={() => setShowPreset(true)} disabled={session.status === 'saving' || !!session.recovery || session.status === 'conflict'}><Icon name="file" size={15} />规范预设{state.designPreset?.rules ? ' ✓' : ''}</button>
-                <button className="btn btn-ghost" onClick={() => setShowAISettings(true)}>AI 配置</button>
                 <button className="btn btn-ghost btn-ai" onClick={() => setShowAI(true)}><Icon name="sparkle" size={16} />AI 辅助</button>
                 <span className="toolbar-spacer" /><span className="toolbar-note">{stats.tableCount} 张表 · {stats.fieldCount} 个字段</span>
                 <button className="btn btn-ghost" onClick={() => setShowValidationModal(true)} title="检查结构"><Icon name="shield" size={15} />{validation.summary.isValid ? '结构检查' : `${validation.summary.errorCount} 个问题`}</button>
@@ -193,7 +190,6 @@ export default function TopBar({ projectId, session, onBack, onToggleSidebar }) 
         </div>
         <input type="file" ref={fileInputRef} accept=".json,application/json" onChange={importBackup} hidden />
         {renameOpen && <div className="modal-overlay" onClick={() => setRenameOpen(false)}><form className="modal-content compact-modal" onClick={event => event.stopPropagation()} onSubmit={async event => { event.preventDefault(); if (nameInput.trim() && await session.save(false, nameInput.trim())) setRenameOpen(false); }}><h2>重命名项目</h2><label className="form-label">项目名称<input className="ui-input" aria-label="项目名称" value={nameInput} onChange={event => setNameInput(event.target.value)} autoFocus required maxLength={100} /></label><div className="modal-footer"><button className="btn" type="button" onClick={() => setRenameOpen(false)}>取消</button><button className="btn btn-primary" disabled={session.status === 'saving' || !nameInput.trim()}>保存名称</button></div></form></div>}
-        {showAISettings && <AISettingsModal onClose={() => setShowAISettings(false)} />}
         {showAI && <AIModal onClose={() => setShowAI(false)} />}
         {showPreset && <ProjectPresetModal initialPreset={state.designPreset} onSave={savePreset} onClose={() => setShowPreset(false)} />}
         {showPDMImport && <PDMImportModal onClose={() => setShowPDMImport(false)} onImported={message => setToast({ message, type: 'success' })} />}
