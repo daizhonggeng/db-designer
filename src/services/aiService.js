@@ -1,13 +1,19 @@
 
 const env = import.meta.env || {};
 const API_KEY = env.VITE_AI_API_KEY;
-const API_ENDPOINT = env.VITE_AI_API_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
-const MODEL_TEXT = env.VITE_AI_MODEL_TEXT || "qwen3-max";
-const MODEL_VISION = env.VITE_AI_MODEL_VISION || "qwen3-vl-plus";
+const API_ENDPOINT = resolveChatCompletionsEndpoint(env.VITE_AI_API_URL || 'https://api.openai.com/v1');
+const MODEL_TEXT = env.VITE_AI_MODEL_TEXT || 'gpt-5.4';
+const MODEL_VISION = env.VITE_AI_MODEL_VISION || MODEL_TEXT;
+
+function resolveChatCompletionsEndpoint(rawUrl) {
+  const normalizedUrl = rawUrl.trim().replace(/\/+$/, '');
+  return normalizedUrl.endsWith('/chat/completions') ? normalizedUrl : `${normalizedUrl}/chat/completions`;
+}
 
 export async function summarizeSpecification(text, signal) {
   if (!text?.trim()) throw new Error('规范正文为空，无法总结。');
   if (text.length > 60000) throw new Error('规范正文超过 60,000 字符，请精简后重试。');
+  if (!API_KEY) throw new Error('请先配置 VITE_AI_API_KEY');
 
   const response = await fetch(API_ENDPOINT, {
     method: 'POST',
@@ -48,6 +54,7 @@ export async function summarizeSpecification(text, signal) {
 }
 
 export async function generateSchema(description, imageBase64 = null, designPreset = null) {
+  if (!API_KEY) throw new Error('请先配置 VITE_AI_API_KEY');
   const isVision = !!imageBase64;
   const MODEL_NAME = isVision ? MODEL_VISION : MODEL_TEXT;
 
@@ -135,6 +142,7 @@ ${designPreset.rules}
     }
 
     // Handle Streaming Response
+    if (!response.body) throw new Error('AI 服务没有返回可读取的数据流');
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
     let reasoning = "";

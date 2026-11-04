@@ -48,7 +48,7 @@ test('复合外键按字段对映射为子表到父表的关系，重复解析�
         .concat(schema.relationships.map(relation => relation.id));
     assert.equal(new Set(ids).size, ids.length);
     assert.ok(next.tables.every(table => !ids.includes(table.id)));
-    assert.match(generateSchemaSQL(schema), /ALTER TABLE `orders` ADD FOREIGN KEY \(`user_id`\) REFERENCES `users` \(`id`\)/);
+    assert.match(generateSchemaSQL(schema), /ALTER TABLE `orders` ADD CONSTRAINT `[^`]+` FOREIGN KEY \(`user_id`\) REFERENCES `users` \(`id`\)/);
 });
 
 test('按 namespace 而非固定前缀解析，Name 可作为缺少 Code 时的名称', () => {

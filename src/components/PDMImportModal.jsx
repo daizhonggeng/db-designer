@@ -38,7 +38,7 @@ export default function PDMImportModal({ onClose, onImported }) {
 
     const handleImport = () => {
         dispatch({ type: 'APPEND_SCHEMA', payload: preview.schema });
-        onImported(`已导入 ${preview.schema.tables.length} 张表、${preview.schema.relationships.length} 条字段关联，可撤销。请点击保存以保存项目。`);
+        onImported(`已导入 ${preview.schema.tables.length} 张表、${preview.schema.relationships.length} 条字段关联，可撤销。请留意自动保存状态，或点击“保存版本”。`);
         onClose();
     };
 
@@ -76,7 +76,7 @@ export default function PDMImportModal({ onClose, onImported }) {
                             </table>
                         </div>
                     </>}
-                    <p className="pdm-help">确认后追加到当前项目，保留已有内容。同名表也会追加，可通过撤销恢复；导入后请点击保存。</p>
+                    <p className="pdm-help">确认后追加到当前项目，保留已有内容。同名表也会追加，可通过撤销恢复；请留意自动保存状态，或点击“保存版本”。</p>
                 </div>
                 <div className="pdm-footer">
                     <button className="btn" onClick={onClose} disabled={reading}>取消</button>

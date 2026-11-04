@@ -1,178 +1,127 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useSchema } from '../store/schemaStore';
 
 export default function Sidebar({ onLocateTable }) {
     const { state } = useSchema();
     const [expandedTables, setExpandedTables] = useState({});
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const schemaStats = useMemo(() => ({
+        tableCount: state.tables.length,
+        columnCount: state.tables.reduce((total, table) => total + table.columns.length, 0),
+        relationshipCount: state.relationships.length,
+        indexCount: state.tables.reduce((total, table) => total + (table.indexes?.length || 0), 0),
+    }), [state.relationships.length, state.tables]);
+
+    const filteredTables = useMemo(() => {
+        const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+        if (!normalizedSearchTerm) {
+            return state.tables;
+        }
+
+        return state.tables.filter((table) => (
+            table.name.toLowerCase().includes(normalizedSearchTerm)
+            || table.comment?.toLowerCase().includes(normalizedSearchTerm)
+            || table.columns.some((column) => column.name.toLowerCase().includes(normalizedSearchTerm) || column.comment?.toLowerCase().includes(normalizedSearchTerm))
+        ));
+    }, [searchTerm, state.tables]);
 
     const toggleTable = (tableId) => {
-        setExpandedTables(prev => ({
+        setExpandedTables((prev) => ({
             ...prev,
-            [tableId]: !prev[tableId]
+            [tableId]: !prev[tableId],
         }));
     };
 
-    const handleTableClick = (tableId) => {
-        if (onLocateTable) {
-            onLocateTable(tableId);
-        }
-    };
-
     return (
-        <div style={{
-            width: '260px',
-            background: 'var(--bg-panel)',
-            borderRight: '1px solid var(--glass-border)',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden'
-        }}>
-            {/* Header */}
-            <div style={{
-                padding: 'var(--spacing-md)',
-                borderBottom: '1px solid var(--glass-border)',
-                background: 'rgba(255,255,255,0.03)'
-            }}>
-                <h3 style={{
-                    margin: 0,
-                    fontSize: '0.9rem',
-                    color: 'var(--accent-primary)',
-                    fontWeight: 'bold'
-                }}>
-                    📋 数据表
-                </h3>
-                <div style={{
-                    fontSize: '0.75rem',
-                    color: 'var(--text-secondary)',
-                    marginTop: '4px'
-                }}>
-                    共 {state.tables.length} 张表
+        <div className="sidebar-shell glass sidebar-industrial">
+            <div className="sidebar-top sidebar-top-industrial">
+                <span className="ui-kicker">Schema Index</span>
+                <h3 className="panel-heading" style={{ margin: '0.7rem 0 0.3rem', fontSize: '1rem' }}>数据表导航</h3>
+                <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.84rem', lineHeight: 1.6 }}>
+                    检索表、字段和关系，并快速定位到画布中的对应位置。
+                </p>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', marginTop: '12px' }}>
+                    {[
+                        { label: '表', value: schemaStats.tableCount },
+                        { label: '字段', value: schemaStats.columnCount },
+                        { label: '关系', value: schemaStats.relationshipCount },
+                        { label: '索引', value: schemaStats.indexCount },
+                    ].map((item) => (
+                        <div key={item.label} className="sidebar-stat-card">
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{item.label}</div>
+                            <div style={{ fontSize: '1rem', color: 'var(--text-primary)', fontWeight: '700', marginTop: '2px' }}>{item.value}</div>
+                        </div>
+                    ))}
                 </div>
+
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '10px' }}>
+                    共 {filteredTables.length} / {state.tables.length} 张表
+                </div>
+
+                <input
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    placeholder="搜索表名、字段或中文注释"
+                    aria-label="搜索表或字段"
+                    className="ui-input"
+                    style={{ marginTop: '10px' }}
+                />
             </div>
 
-            {/* Tree View */}
-            <div style={{
-                flex: 1,
-                overflowY: 'auto',
-                padding: 'var(--spacing-sm)'
-            }}>
-                {state.tables.length === 0 ? (
-                    <div style={{
-                        padding: 'var(--spacing-lg)',
-                        textAlign: 'center',
-                        color: 'var(--text-secondary)',
-                        fontSize: '0.85rem'
-                    }}>
-                        暂无数据表
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0.6rem' }}>
+                {filteredTables.length === 0 ? (
+                    <div className="dashboard-empty" style={{ padding: '1.2rem' }}>
+                        {state.tables.length === 0 ? '暂无数据表' : '没有匹配的表或字段'}
                     </div>
                 ) : (
-                    state.tables.map(table => (
-                        <div key={table.id} style={{
-                            marginBottom: 'var(--spacing-xs)',
-                            borderRadius: 'var(--radius-sm)',
-                            overflow: 'hidden',
-                            border: '1px solid transparent',
-                            transition: 'all 0.2s'
-                        }}>
-                            {/* Table Header */}
+                    filteredTables.map((table) => (
+                        <div key={table.id} className="sidebar-table-card">
                             <div
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    padding: '8px',
-                                    cursor: 'pointer',
-                                    background: expandedTables[table.id] ? 'rgba(255,255,255,0.05)' : 'transparent',
-                                    borderRadius: 'var(--radius-sm)',
-                                    transition: 'all 0.2s'
-                                }}
+                                className="sidebar-table-head"
                                 onClick={() => toggleTable(table.id)}
-                                onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.08)'}
-                                onMouseLeave={(e) => e.target.style.background = expandedTables[table.id] ? 'rgba(255,255,255,0.05)' : 'transparent'}
                             >
-                                <span style={{
-                                    marginRight: '6px',
-                                    fontSize: '12px',
-                                    transition: 'transform 0.2s',
-                                    transform: expandedTables[table.id] ? 'rotate(90deg)' : 'rotate(0deg)',
-                                    display: 'inline-block'
-                                }}>
+                                <span style={{ marginRight: '6px', fontSize: '12px', transform: expandedTables[table.id] ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
                                     ▶
                                 </span>
-                                <span style={{
-                                    flex: 1,
-                                    fontSize: '0.85rem',
-                                    color: 'var(--text-primary)',
-                                    fontWeight: '500'
-                                }}>
-                                    {table.name}
+                                <span style={{ flex: 1, fontSize: '0.88rem', color: 'var(--text-primary)', fontWeight: '600' }}>
+                                    {table.name}{table.comment && <small style={{ display: 'block', color: 'var(--text-secondary)', fontWeight: 400 }}>{table.comment}</small>}
                                 </span>
+                                <span className="project-badge" style={{ marginRight: '0.35rem' }}>{table.columns.length}</span>
                                 <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleTableClick(table.id);
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        if (onLocateTable) {
+                                            onLocateTable(table.id);
+                                        }
                                     }}
-                                    style={{
-                                        background: 'transparent',
-                                        border: 'none',
-                                        color: 'var(--accent-primary)',
-                                        cursor: 'pointer',
-                                        fontSize: '16px',
-                                        padding: '2px 6px',
-                                        borderRadius: 'var(--radius-sm)',
-                                        transition: 'all 0.2s'
-                                    }}
-                                    onMouseEnter={(e) => e.target.style.background = 'rgba(129, 140, 248, 0.2)'}
-                                    onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                                    className="sidebar-locate-btn"
                                     title="定位到此表"
                                 >
                                     🎯
                                 </button>
                             </div>
 
-                            {/* Columns List */}
-                            {expandedTables[table.id] && (
-                                <div style={{
-                                    paddingLeft: '24px',
-                                    paddingRight: '8px',
-                                    paddingBottom: '4px'
-                                }}>
-                                    {table.columns.map(col => {
-                                        const isFk = state.relationships.some(r =>
-                                            r.fromTable === table.id && r.fromCol === col.id
-                                        );
-
-                                        return (
-                                            <div
-                                                key={col.id}
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    padding: '4px 8px',
-                                                    fontSize: '0.8rem',
-                                                    color: 'var(--text-secondary)',
-                                                    borderRadius: 'var(--radius-sm)',
-                                                    marginBottom: '2px',
-                                                    transition: 'all 0.2s'
-                                                }}
-                                                onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.03)'}
-                                                onMouseLeave={(e) => e.target.style.background = 'transparent'}
-                                            >
-                                                <span style={{ marginRight: '6px', fontSize: '12px' }}>
-                                                    {col.isPk ? '🔑' : (isFk ? '🔗' : '•')}
-                                                </span>
-                                                <span style={{ flex: 1, color: 'var(--text-primary)' }}>
-                                                    {col.name}
-                                                </span>
-                                                <span style={{
-                                                    fontSize: '0.75rem',
-                                                    color: 'var(--accent-secondary)',
-                                                    opacity: 0.7
-                                                }}>
-                                                    {col.type}
-                                                </span>
-                                            </div>
-                                        );
-                                    })}
+                            {(expandedTables[table.id] || searchTerm.trim()) && (
+                                <div style={{ padding: '0.3rem 0.4rem 0.5rem 1.2rem' }}>
+                                    {table.columns
+                                        .filter((column) => {
+                                            const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+                                            return !normalizedSearchTerm || table.name.toLowerCase().includes(normalizedSearchTerm) || table.comment?.toLowerCase().includes(normalizedSearchTerm) || column.name.toLowerCase().includes(normalizedSearchTerm) || column.comment?.toLowerCase().includes(normalizedSearchTerm);
+                                        })
+                                        .map((column) => {
+                                            const isFk = state.relationships.some((relationship) => relationship.fromTable === table.id && relationship.fromCol === column.id);
+                                            return (
+                                                <div key={column.id} className="sidebar-column-row">
+                                                    <span style={{ marginRight: '6px', fontSize: '12px' }}>
+                                                        {column.isPk ? '🔑' : (isFk ? '🔗' : '•')}
+                                                    </span>
+                                                    <span style={{ flex: 1, color: 'var(--text-primary)' }}>{column.name}{column.comment && <small style={{ display: 'block', color: 'var(--text-secondary)' }}>{column.comment}</small>}</span>
+                                                    <span style={{ fontSize: '0.74rem', color: 'var(--accent-secondary)', opacity: 0.8 }}>{column.type}</span>
+                                                </div>
+                                            );
+                                        })}
                                 </div>
                             )}
                         </div>

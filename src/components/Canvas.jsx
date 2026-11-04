@@ -1,9 +1,11 @@
-import React, { useRef, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import React, { useCallback, useRef, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useSchema } from '../store/schemaStore';
 import TableNode from './TableNode';
 import BookmarkNode from './BookmarkNode';
 import ContextMenu from './ContextMenu';
+import { createOrderExample } from '../utils/projectData';
+import { fitViewport, canvasPoint } from '../utils/canvasViewport';
 
 const SNAP_SIZE = 20;
 
@@ -27,6 +29,10 @@ const Canvas = forwardRef((props, ref) => {
 
     // Selection & Hover State
     const [selectedRelId, setSelectedRelId] = useState(null);
+    const [measurements, setMeasurements] = useState({});
+    const measureTable = useCallback((id, measurement) => {
+        setMeasurements(previous => JSON.stringify(previous[id]) === JSON.stringify(measurement) ? previous : { ...previous, [id]: measurement });
+    }, []);
     const [hoveredTableId, setHoveredTableId] = useState(null);
 
     // Context Menu State
@@ -37,6 +43,21 @@ const Canvas = forwardRef((props, ref) => {
     const [pan, setPan] = useState({ x: 0, y: 0 });
     const [isPanning, setIsPanning] = useState(false);
     const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+
+    const hasFitted = useRef(false);
+    const fitView = useCallback(() => {
+        if (!containerRef.current) return;
+        const { width, height } = containerRef.current.getBoundingClientRect();
+        const viewport = fitViewport(state.tables, state.bookmarks, width, height);
+        setZoom(viewport.zoom);
+        setPan(viewport.pan);
+    }, [state.tables, state.bookmarks]);
+
+    useEffect(() => {
+        if (!state.tables.length || hasFitted.current) return;
+        const frame = requestAnimationFrame(() => { fitView(); hasFitted.current = true; });
+        return () => cancelAnimationFrame(frame);
+    }, [state.tables.length, fitView]);
 
     // Expose methods to parent
     useImperativeHandle(ref, () => ({
@@ -55,6 +76,9 @@ const Canvas = forwardRef((props, ref) => {
     // Global Keydown for Shortcuts
     useEffect(() => {
         const handleKeyDown = (e) => {
+            if (e.target.closest('input, textarea, select, [contenteditable="true"]') || document.querySelector('.modal-overlay')) return;
+            if (e.key === 'Escape') { setConnecting(null); setSelectedRelId(null); }
+            if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); fitView(); }
             // Delete
             if ((e.key === 'Delete' || e.key === 'Backspace') && selectedRelId) {
                 dispatch({ type: 'DELETE_RELATIONSHIP', payload: selectedRelId });
@@ -86,7 +110,7 @@ const Canvas = forwardRef((props, ref) => {
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [selectedRelId, hoveredTableId, dispatch]);
+    }, [selectedRelId, hoveredTableId, dispatch, fitView]);
 
     // Close context menu on click
     useEffect(() => {
@@ -113,9 +137,8 @@ const Canvas = forwardRef((props, ref) => {
     const handleMouseDown = (e) => {
         if (e.button === 2) return; // Right click handled by context menu
 
-        const canvasRect = canvasRef.current.getBoundingClientRect();
-        const mouseX = (e.clientX - canvasRect.left - pan.x) / zoom;
-        const mouseY = (e.clientY - canvasRect.top - pan.y) / zoom;
+        const canvasRect = containerRef.current.getBoundingClientRect();
+        const { x: mouseX, y: mouseY } = canvasPoint(e.clientX, e.clientY, canvasRect, pan, zoom);
 
         lastMousePosRef.current = { x: mouseX, y: mouseY };
 
@@ -181,9 +204,8 @@ const Canvas = forwardRef((props, ref) => {
             return;
         }
 
-        const canvasRect = canvasRef.current.getBoundingClientRect();
-        const rawX = (e.clientX - canvasRect.left - pan.x) / zoom;
-        const rawY = (e.clientY - canvasRect.top - pan.y) / zoom;
+        const canvasRect = containerRef.current.getBoundingClientRect();
+        const { x: rawX, y: rawY } = canvasPoint(e.clientX, e.clientY, canvasRect, pan, zoom);
         setMousePos({ x: rawX, y: rawY });
 
         if (draggingId) {
@@ -290,7 +312,7 @@ const Canvas = forwardRef((props, ref) => {
     };
 
     const onStartConnect = (tableId, colId, e) => {
-        const canvasRect = canvasRef.current.getBoundingClientRect();
+        const canvasRect = containerRef.current.getBoundingClientRect();
         setConnecting({
             tableId,
             colId,
@@ -319,8 +341,9 @@ const Canvas = forwardRef((props, ref) => {
         const table = state.tables.find(t => t.id === tableId);
         if (!table) return { x: 0, y: 0 };
         const colIndex = table.columns.findIndex(c => c.id === colId);
-        const yOffset = 45 + (colIndex * 34) + 17;
-        const width = table.width || 240;
+        const measured = measurements[tableId];
+        const yOffset = measured?.columnOffsets[colId] ?? (145 + colIndex * 44);
+        const width = measured?.width || table.width || 360;
         return { x: table.position.x, y: table.position.y + yOffset, width };
     };
 
@@ -332,13 +355,16 @@ const Canvas = forwardRef((props, ref) => {
     return (
         <div
             ref={containerRef}
-            className="canvas"
+            className="canvas glass"
             style={{
                 flex: 1,
                 position: 'relative',
                 overflow: 'hidden',
-                background: 'var(--bg-dark)',
-                outline: 'none'
+                background: 'linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015)), rgba(3, 12, 18, 0.5)',
+                outline: 'none',
+                borderRadius: '28px',
+                border: '1px solid var(--glass-border)',
+                boxShadow: 'var(--shadow-lg)'
             }}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
@@ -357,16 +383,44 @@ const Canvas = forwardRef((props, ref) => {
                 />
             )}
 
+            {state.tables.length === 0 && <div className="canvas-empty" onMouseDown={event => event.stopPropagation()}>
+                <span className="empty-icon">▦</span><h2>从第一张表开始设计</h2><p>添加数据表后，双击表头编辑字段。<br />拖动字段旁的连接点，可以建立表之间的关系。</p>
+                <div className="session-actions"><button className="btn btn-primary" onClick={() => dispatch({ type: 'ADD_TABLE' })}>+ 添加第一张表</button><button className="btn" onClick={() => dispatch({ type: 'IMPORT_SCHEMA', payload: createOrderExample() })}>载入订单示例</button></div>
+            </div>}
+            <div style={{
+                position: 'absolute',
+                top: '16px',
+                right: '18px',
+                zIndex: 80,
+                display: 'flex',
+                gap: '0.5rem',
+                flexWrap: 'wrap',
+                justifyContent: 'flex-end'
+            }}>
+                <span className="project-badge">双击表头编辑</span>
+                <span className="project-badge">右键菜单</span>
+                <span className="project-badge">F 显示全部 · Ctrl+S 保存版本</span>
+            </div>
+
             {/* Zoom Controls */}
             <div style={{
-                position: 'absolute', bottom: '20px', right: '20px', zIndex: 100,
-                display: 'flex', flexDirection: 'column', gap: '8px',
-                background: 'var(--bg-panel)', padding: '8px', borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--glass-border)'
+                position: 'absolute',
+                bottom: '20px',
+                right: '20px',
+                zIndex: 100,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                background: 'rgba(9, 25, 34, 0.84)',
+                padding: '10px',
+                borderRadius: '18px',
+                border: '1px solid var(--glass-border)',
+                boxShadow: 'var(--shadow-sm)'
             }}>
-                <button className="btn" onClick={zoomIn}>+</button>
+                <button className="btn" onClick={fitView} title="显示全部数据表（F）" aria-label="适应画布">⊡</button>
+                <button className="btn" onClick={zoomIn} aria-label="放大画布">+</button>
                 <button className="btn" onClick={resetZoom} style={{ fontSize: '12px' }}>{Math.round(zoom * 100)}%</button>
-                <button className="btn" onClick={zoomOut}>−</button>
+                <button className="btn" onClick={zoomOut} aria-label="缩小画布">−</button>
             </div>
 
             <div
@@ -377,8 +431,12 @@ const Canvas = forwardRef((props, ref) => {
                     transformOrigin: '0 0',
                     transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                     cursor: isPanning ? 'grabbing' : (draggingId ? 'grabbing' : 'default'),
-                    background: 'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.08) 1px, transparent 0)',
-                    backgroundSize: `${SNAP_SIZE}px ${SNAP_SIZE}px`, // Grid matches snap size
+                    backgroundImage: `
+                        radial-gradient(circle at 1px 1px, rgba(255,255,255,0.07) 1px, transparent 0),
+                        linear-gradient(180deg, rgba(90, 209, 195, 0.045), transparent 24%),
+                        radial-gradient(circle at top right, rgba(242, 182, 109, 0.08), transparent 22%)
+                    `,
+                    backgroundSize: `${SNAP_SIZE}px ${SNAP_SIZE}px, auto, auto`,
                     backgroundPosition: `${pan.x}px ${pan.y}px`
                 }}
             >
@@ -395,7 +453,7 @@ const Canvas = forwardRef((props, ref) => {
                             <path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444" />
                         </marker>
                         <marker id="arrow-highlight" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                            <path d="M 0 0 L 10 5 L 0 10 z" fill="#a855f7" />
+                            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent-primary)" />
                         </marker>
                     </defs>
 
@@ -451,7 +509,7 @@ const Canvas = forwardRef((props, ref) => {
                                 <path d={path} stroke="transparent" strokeWidth="15" fill="none" />
                                 <path
                                     d={path}
-                                    stroke={isSelected ? "#ef4444" : (isHighlighted ? "#a855f7" : "var(--accent-secondary)")}
+                                    stroke={isSelected ? "#ef4444" : (isHighlighted ? "var(--accent-primary)" : "var(--accent-secondary)")}
                                     strokeWidth={isSelected || isHighlighted ? "3" : "2"}
                                     fill="none"
                                     opacity={isSelected || isHighlighted ? "1" : "0.6"}
@@ -491,6 +549,7 @@ const Canvas = forwardRef((props, ref) => {
                         >
                             <TableNode
                                 table={table}
+                                onMeasure={measureTable}
                                 onStartConnect={onStartConnect}
                                 onCompleteConnect={onCompleteConnect}
                             />

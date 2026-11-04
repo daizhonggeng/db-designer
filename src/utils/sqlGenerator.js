@@ -1,110 +1,311 @@
-/**
- * 生成单个表的 SQL 语句
- * @param {Object} table - 表对象
- * @param {string} dialect - 数据库方言 ('mysql', 'postgresql', 'oracle')
- * @returns {string} SQL 语句
- */
-export function generateTableSQL(table, dialect = 'mysql') {
-    let sql = '';
+import { normalizeTable } from './schemaModel.js';
 
-    // 表名引用符号
+function quoteIdentifier(identifier, dialect) {
     const quote = dialect === 'mysql' ? '`' : '"';
-
-    // CREATE TABLE 语句
-    sql += `CREATE TABLE ${quote}${table.name}${quote} (\n`;
-
-    // 列定义
-    const cols = table.columns.map(col => {
-        let type = col.type;
-        let line = '';
-
-        // 数据库特定的类型调整
-        if (dialect === 'postgresql') {
-            if (col.isPk && type.toUpperCase() === 'INT') {
-                type = 'SERIAL'; // PostgreSQL 自增
-            }
-        } else if (dialect === 'oracle') {
-            if (type.toUpperCase() === 'INT') type = 'NUMBER';
-            if (type.toUpperCase().startsWith('VARCHAR')) {
-                type = type.replace(/VARCHAR/i, 'VARCHAR2');
-            }
-        }
-
-        line = `  ${quote}${col.name}${quote} ${type}`;
-
-        // 主键定义
-        if (col.isPk) {
-            if (dialect === 'mysql') {
-                line += ' PRIMARY KEY';
-                if (type.toUpperCase().includes('INT')) {
-                    line += ' AUTO_INCREMENT';
-                }
-            } else if (dialect === 'postgresql') {
-                line += ' PRIMARY KEY';
-            } else if (dialect === 'oracle') {
-                line += ' PRIMARY KEY';
-            }
-        }
-
-        // MySQL 列注释
-        if (dialect === 'mysql' && col.comment) {
-            line += ` COMMENT '${col.comment.replace(/'/g, "\\'")}'`;
-        }
-
-        return line;
-    });
-
-    sql += cols.join(',\n');
-
-    // 表注释
-    if (dialect === 'mysql' && table.comment) {
-        sql += `\n) COMMENT='${table.comment.replace(/'/g, "\\'")}';`;
-    } else {
-        sql += '\n);';
-    }
-
-    // PostgreSQL / Oracle 注释
-    if (dialect !== 'mysql') {
-        if (table.comment) {
-            sql += `\nCOMMENT ON TABLE ${quote}${table.name}${quote} IS '${table.comment.replace(/'/g, "''")}';`;
-        }
-        table.columns.forEach(col => {
-            if (col.comment) {
-                sql += `\nCOMMENT ON COLUMN ${quote}${table.name}${quote}.${quote}${col.name}${quote} IS '${col.comment.replace(/'/g, "''")}';`;
-            }
-        });
-    }
-
-    return sql;
+    const safeIdentifier = String(identifier || '').replace(new RegExp(quote, 'g'), '');
+    return `${quote}${safeIdentifier}${quote}`;
 }
 
-/**
- * 生成完整 schema 的 SQL 语句
- * @param {Object} schema - schema 对象，包含 tables 和 relationships
- * @param {string} dialect - 数据库方言 ('mysql', 'postgresql', 'oracle')
- * @returns {string} SQL 语句
- */
-export function generateSchemaSQL(schema, dialect = 'mysql') {
-    let sql = '';
-    const { tables, relationships } = schema;
-    const quote = dialect === 'mysql' ? '`' : '"';
+function escapeSqlString(value) {
+    return String(value).replace(/'/g, "''");
+}
 
-    // 生成所有表
-    tables.forEach(table => {
-        sql += generateTableSQL(table, dialect) + '\n\n';
+function normalizeTypeForDialect(type, dialect) {
+    const rawType = String(type || 'VARCHAR(255)');
+    const upperType = rawType.toUpperCase();
+
+    if (dialect === 'oracle') {
+        if (upperType === 'INT' || upperType === 'INTEGER') {
+            return 'NUMBER';
+        }
+        if (upperType.startsWith('VARCHAR')) {
+            return rawType.replace(/VARCHAR/i, 'VARCHAR2');
+        }
+    }
+
+    return rawType;
+}
+
+function isNumericLiteral(value) {
+    return /^[-+]?\d+(\.\d+)?$/.test(value);
+}
+
+function isSqlExpression(value) {
+    const trimmed = value.trim();
+    return /^(CURRENT_TIMESTAMP(\(\))?|CURRENT_DATE|CURRENT_TIME|NOW\(\)|SYSDATE|NULL)$/i.test(trimmed) ||
+        /^[A-Z_][A-Z0-9_]*\(\)$/.test(trimmed);
+}
+
+function formatDefaultValue(value) {
+    if (value === null || value === undefined) {
+        return '';
+    }
+
+    if (typeof value === 'number') {
+        return String(value);
+    }
+
+    if (typeof value === 'boolean') {
+        return value ? 'TRUE' : 'FALSE';
+    }
+
+    const trimmed = String(value).trim();
+    if (!trimmed) {
+        return '';
+    }
+
+    if (isNumericLiteral(trimmed) || isSqlExpression(trimmed) || /^'.*'$/.test(trimmed)) {
+        return trimmed;
+    }
+
+    return `'${escapeSqlString(trimmed)}'`;
+}
+
+function buildTableContext(table) {
+    const columnById = new Map(table.columns.map(col => [col.id, col]));
+    const columnNamesById = new Map(table.columns.map(col => [col.id, col.name]));
+
+    const explicitPrimaryConstraint = table.constraints.find(c => c.type === 'primary_key');
+    const inferredPrimaryIds = explicitPrimaryConstraint
+        ? explicitPrimaryConstraint.columnIds
+        : table.columns.filter(col => col.isPk).map(col => col.id);
+
+    const primaryColumnIds = [...new Set(inferredPrimaryIds.filter(columnId => columnById.has(columnId)))];
+
+    const uniqueConstraintColumnSets = new Set(
+        table.constraints
+            .filter(c => c.type === 'unique')
+            .map(c => c.columnIds.slice().sort().join('|'))
+    );
+
+    return {
+        columnById,
+        columnNamesById,
+        primaryColumnIds,
+        uniqueConstraintColumnSets,
+        explicitPrimaryConstraint,
+    };
+}
+
+function generateColumnDefinition(table, column, context, dialect) {
+    const segments = [
+        quoteIdentifier(column.name, dialect),
+        normalizeTypeForDialect(column.type, dialect),
+    ];
+
+    const isPrimaryColumn = context.primaryColumnIds.includes(column.id);
+
+    if (column.isAutoIncrement) {
+        if (dialect === 'mysql') {
+            segments.push('AUTO_INCREMENT');
+        } else if (dialect === 'postgresql') {
+            segments.push('GENERATED BY DEFAULT AS IDENTITY');
+        } else if (dialect === 'oracle') {
+            segments.push('GENERATED BY DEFAULT ON NULL AS IDENTITY');
+        }
+    }
+
+    const defaultValue = formatDefaultValue(column.defaultValue);
+    if (defaultValue) {
+        segments.push(`DEFAULT ${defaultValue}`);
+    }
+
+    if (isPrimaryColumn || !column.nullable) {
+        segments.push('NOT NULL');
+    }
+
+    const hasSingleUniqueConstraint = context.uniqueConstraintColumnSets.has([column.id].join('|'));
+    if (column.isUnique && !isPrimaryColumn && !hasSingleUniqueConstraint) {
+        segments.push('UNIQUE');
+    }
+
+    if (dialect === 'mysql' && column.comment) {
+        segments.push(`COMMENT '${escapeSqlString(column.comment)}'`);
+    }
+
+    return `  ${segments.join(' ')}`;
+}
+
+function generateConstraintDefinitions(table, context, dialect) {
+    const lines = [];
+    const usedConstraintNames = new Set();
+
+    const makeConstraintName = (base, index) => {
+        let candidate = `${table.name}_${base}_${index}`;
+        let counter = 1;
+        while (usedConstraintNames.has(candidate)) {
+            candidate = `${table.name}_${base}_${index}_${counter}`;
+            counter += 1;
+        }
+        usedConstraintNames.add(candidate);
+        return candidate;
+    };
+
+    if (context.primaryColumnIds.length > 0) {
+        const columnList = context.primaryColumnIds
+            .map(columnId => quoteIdentifier(context.columnNamesById.get(columnId), dialect))
+            .join(', ');
+
+        const providedName = context.explicitPrimaryConstraint?.name?.trim();
+        const constraintName = providedName || makeConstraintName('pk', 1);
+        lines.push(`  CONSTRAINT ${quoteIdentifier(constraintName, dialect)} PRIMARY KEY (${columnList})`);
+    }
+
+    table.constraints
+        .filter(constraint => constraint.type === 'unique' && constraint.columnIds.length > 0)
+        .forEach((constraint, index) => {
+            const columnList = constraint.columnIds
+                .map(columnId => context.columnNamesById.get(columnId))
+                .filter(Boolean)
+                .map(columnName => quoteIdentifier(columnName, dialect))
+                .join(', ');
+
+            if (!columnList) {
+                return;
+            }
+
+            const constraintName = constraint.name?.trim() || makeConstraintName('uk', index + 1);
+            lines.push(`  CONSTRAINT ${quoteIdentifier(constraintName, dialect)} UNIQUE (${columnList})`);
+        });
+
+    table.constraints
+        .filter(constraint => constraint.type === 'check' && constraint.expression.trim())
+        .forEach((constraint, index) => {
+            const constraintName = constraint.name?.trim() || makeConstraintName('chk', index + 1);
+            lines.push(`  CONSTRAINT ${quoteIdentifier(constraintName, dialect)} CHECK (${constraint.expression.trim()})`);
+        });
+
+    return lines;
+}
+
+function generateIndexStatements(table, context, dialect) {
+    const statements = [];
+
+    table.indexes.forEach((index, indexPosition) => {
+        const columnNames = index.columnIds
+            .map(columnId => context.columnNamesById.get(columnId))
+            .filter(Boolean);
+
+        if (columnNames.length === 0) {
+            return;
+        }
+
+        const indexName = index.name?.trim() || `${table.name}_idx_${indexPosition + 1}`;
+        const columnList = columnNames
+            .map(columnName => quoteIdentifier(columnName, dialect))
+            .join(', ');
+
+        if (index.comment?.trim()) {
+            statements.push(`-- ${index.comment.trim()}`);
+        }
+
+        if (dialect === 'oracle' && index.type?.toLowerCase() === 'bitmap') {
+            statements.push(
+                `CREATE BITMAP INDEX ${quoteIdentifier(indexName, dialect)} ON ${quoteIdentifier(table.name, dialect)} (${columnList});`
+            );
+            return;
+        }
+
+        let sql = `CREATE ${index.isUnique ? 'UNIQUE ' : ''}INDEX ${quoteIdentifier(indexName, dialect)} ON ${quoteIdentifier(table.name, dialect)}`;
+        if (index.type?.trim()) {
+            if (dialect === 'postgresql') {
+                sql += ` USING ${index.type.trim()}`;
+            } else if (dialect === 'mysql') {
+                sql += ` USING ${index.type.trim()}`;
+            }
+        }
+        sql += ` (${columnList});`;
+        statements.push(sql);
     });
 
-    // 生成外键约束
-    relationships.forEach(rel => {
-        const fromT = tables.find(t => t.id === rel.fromTable);
-        const toT = tables.find(t => t.id === rel.toTable);
-        const fromC = fromT?.columns.find(c => c.id === rel.fromCol);
-        const toC = toT?.columns.find(c => c.id === rel.toCol);
+    return statements;
+}
 
-        if (fromT && toT && fromC && toC) {
-            sql += `ALTER TABLE ${quote}${fromT.name}${quote} ADD FOREIGN KEY (${quote}${fromC.name}${quote}) REFERENCES ${quote}${toT.name}${quote} (${quote}${toC.name}${quote});\n`;
+function generateCommentStatements(table, dialect) {
+    if (dialect === 'mysql') {
+        return [];
+    }
+
+    const statements = [];
+    if (table.comment) {
+        statements.push(`COMMENT ON TABLE ${quoteIdentifier(table.name, dialect)} IS '${escapeSqlString(table.comment)}';`);
+    }
+
+    table.columns.forEach((column) => {
+        if (column.comment) {
+            statements.push(
+                `COMMENT ON COLUMN ${quoteIdentifier(table.name, dialect)}.${quoteIdentifier(column.name, dialect)} IS '${escapeSqlString(column.comment)}';`
+            );
         }
     });
 
-    return sql;
+    return statements;
+}
+
+export function generateTableSQL(rawTable, dialect = 'mysql') {
+    const table = normalizeTable(rawTable);
+    const context = buildTableContext(table);
+
+    const definitions = [
+        ...table.columns.map(column => generateColumnDefinition(table, column, context, dialect)),
+        ...generateConstraintDefinitions(table, context, dialect),
+    ];
+
+    const createTableStatement = [
+        `CREATE TABLE ${quoteIdentifier(table.name, dialect)} (`,
+        definitions.join(',\n'),
+        ')',
+    ];
+
+    if (dialect === 'mysql' && table.comment) {
+        createTableStatement[2] += ` COMMENT='${escapeSqlString(table.comment)}'`;
+    }
+    createTableStatement[2] += ';';
+
+    const parts = [createTableStatement.join('\n')];
+    parts.push(...generateCommentStatements(table, dialect));
+    parts.push(...generateIndexStatements(table, context, dialect));
+    return parts.filter(Boolean).join('\n');
+}
+
+function generateRelationshipSQL(schema, dialect) {
+    const tableById = new Map(schema.tables.map(table => [table.id, table]));
+    const quote = name => quoteIdentifier(name, dialect);
+    const statements = [];
+
+    schema.relationships.forEach((relationship, index) => {
+        const fromTable = tableById.get(relationship.fromTable);
+        const toTable = tableById.get(relationship.toTable);
+        const fromColumn = fromTable?.columns.find(col => col.id === relationship.fromCol);
+        const toColumn = toTable?.columns.find(col => col.id === relationship.toCol);
+
+        if (!fromTable || !toTable || !fromColumn || !toColumn) {
+            return;
+        }
+
+        const constraintName = relationship.name?.trim() || `${fromTable.name}_fk_${index + 1}`;
+        let statement = `ALTER TABLE ${quote(fromTable.name)} ADD CONSTRAINT ${quote(constraintName)} FOREIGN KEY (${quote(fromColumn.name)}) REFERENCES ${quote(toTable.name)} (${quote(toColumn.name)})`;
+
+        if (relationship.onDelete) {
+            statement += ` ON DELETE ${relationship.onDelete}`;
+        }
+        if (relationship.onUpdate && dialect !== 'oracle') {
+            statement += ` ON UPDATE ${relationship.onUpdate}`;
+        }
+
+        statement += ';';
+        statements.push(statement);
+    });
+
+    return statements;
+}
+
+export function generateSchemaSQL(schema, dialect = 'mysql') {
+    const tables = Array.isArray(schema?.tables) ? schema.tables : [];
+    const relationships = Array.isArray(schema?.relationships) ? schema.relationships : [];
+    const normalizedSchema = { tables: tables.map(normalizeTable), relationships };
+
+    const statements = normalizedSchema.tables.map(table => generateTableSQL(table, dialect));
+    statements.push(...generateRelationshipSQL(normalizedSchema, dialect));
+    return statements.filter(Boolean).join('\n\n');
 }

@@ -14,8 +14,8 @@ export default function App() {
         <SettingsProvider>
           <SchemaProvider>
             <Routes>
-              <Route path="/login" element={<AuthPage type="login" />} />
-              <Route path="/register" element={<AuthPage type="register" />} />
+              <Route path="/login" element={<AuthPage key="login" type="login" />} />
+              <Route path="/register" element={<AuthPage key="register" type="register" />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/editor/:projectId" element={<Layout />} />
               <Route path="/" element={<Navigate to="/dashboard" />} />

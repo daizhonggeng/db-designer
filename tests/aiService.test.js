@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { generateSchema, summarizeSpecification } from '../src/services/aiService.js';
+import { readFileSync } from 'node:fs';
+
+const source = readFileSync(new URL('../src/services/aiService.js', import.meta.url), 'utf8');
+const testConfig = { VITE_AI_API_KEY: 'test-only-key', VITE_AI_API_URL: 'https://example.test/v1' };
+const { generateSchema, summarizeSpecification } = await import(`data:text/javascript,${encodeURIComponent(source.replace('import.meta.env', JSON.stringify(testConfig)))}`);
 
 test('总结使用配置的文字接口并保留规范正文', async (t) => {
     const controller = new AbortController();
     t.mock.method(globalThis, 'fetch', async (_url, options) => {
+        assert.equal(_url, 'https://example.test/v1/chat/completions');
         const body = JSON.parse(options.body);
         assert.equal(body.stream, false);
         assert.match(body.messages[0].content, /不添加惯例或虚构要求/);
@@ -13,6 +18,14 @@ test('总结使用配置的文字接口并保留规范正文', async (t) => {
         return Response.json({ choices: [{ message: { content: ' ## 字段\n- 金额必须使用 DECIMAL(18,2)。 ' }, finish_reason: 'stop' }] });
     });
     assert.equal(await summarizeSpecification('金额必须使用 DECIMAL(18,2)', controller.signal), '## 字段\n- 金额必须使用 DECIMAL(18,2)。');
+});
+
+test('未配置凭据时不发送总结或设计请求', async (t) => {
+    const unconfigured = await import(`data:text/javascript,${encodeURIComponent(source.replace('import.meta.env', '{}'))}`);
+    const fetchMock = t.mock.method(globalThis, 'fetch', () => { throw new Error('不应请求'); });
+    await assert.rejects(unconfigured.generateSchema('客户管理'), /VITE_AI_API_KEY/);
+    await assert.rejects(unconfigured.summarizeSpecification('命名规范'), /VITE_AI_API_KEY/);
+    assert.equal(fetchMock.mock.callCount(), 0);
 });
 
 test('无效正文不会发送请求', async (t) => {

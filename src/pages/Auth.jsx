@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { API_BASE_URL } from '../config';
+import { Link, useNavigate } from 'react-router-dom';
+import { apiPost } from '../services/api';
+import { setStoredUser } from '../utils/storage';
 import Logo from '../components/Logo';
 
 export default function AuthPage({ type }) {
@@ -9,26 +10,16 @@ export default function AuthPage({ type }) {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
+    const handleSubmit = async (event) => {
+        event.preventDefault();
         setError('');
         setLoading(true);
 
-        const endpoint = type === 'login' ? `${API_BASE_URL}/api/login` : `${API_BASE_URL}/api/register`;
+        const endpoint = type === 'login' ? '/api/login' : '/api/register';
 
         try {
-            const res = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData)
-            });
-
-            const data = await res.json();
-
-            if (!res.ok) throw new Error(data.error || 'Authentication failed');
-
-            localStorage.setItem('user', JSON.stringify(data));
-            // Small delay to show success state if desired, or instant redirect
+            const data = await apiPost(endpoint, formData);
+            setStoredUser(data);
             navigate('/dashboard');
         } catch (err) {
             setError(err.message);
@@ -38,88 +29,107 @@ export default function AuthPage({ type }) {
     };
 
     return (
-        <div className="auth-container">
-            {/* Animated Background */}
-            <div className="auth-blob auth-blob-1"></div>
-            <div className="auth-blob auth-blob-2"></div>
-            <div className="auth-blob auth-blob-3"></div>
+        <div className="auth-container auth-industrial">
             <div className="auth-grid"></div>
 
-            <div className="auth-card">
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '2rem' }}>
-                    <div style={{ marginBottom: '1.5rem', transform: 'scale(1.5)' }}>
-                        <Logo size={48} showText={false} />
-                    </div>
-                    <h2 style={{
-                        color: 'white',
-                        fontSize: '1.8rem',
-                        fontWeight: '700',
-                        letterSpacing: '-1px',
-                        marginBottom: '0.5rem'
-                    }}>
-                        {type === 'login' ? '欢迎回来' : '创建账户'}
-                    </h2>
-                    <p style={{ color: '#94a3b8', fontSize: '0.95rem' }}>
-                        {type === 'login' ? '登录您的账户以继续' : '开启您的数据库设计之旅'}
-                    </p>
-                </div>
-
-                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    <div className="auth-input-group">
-                        <span className="auth-icon">👤</span>
-                        <input
-                            type="text"
-                            className="auth-input"
-                            placeholder="用户名"
-                            value={formData.username}
-                            onChange={e => setFormData({ ...formData, username: e.target.value })}
-                            required
-                        />
-                    </div>
-                    <div className="auth-input-group">
-                        <span className="auth-icon">🔒</span>
-                        <input
-                            type="password"
-                            className="auth-input"
-                            placeholder="密码"
-                            value={formData.password}
-                            onChange={e => setFormData({ ...formData, password: e.target.value })}
-                            required
-                        />
+            <div className="auth-console glass">
+                <section className="auth-console-copy">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                        <Logo size={34} showText={true} />
+                        <span className="ui-kicker">Industrial Console</span>
                     </div>
 
-                    {error && (
-                        <div style={{
-                            color: '#f87171',
-                            background: 'rgba(239, 68, 68, 0.1)',
-                            padding: '0.5rem',
-                            borderRadius: '8px',
-                            fontSize: '0.9rem',
-                            marginBottom: '0.5rem',
-                            textAlign: 'center'
-                        }}>
-                            ⚠️ {error}
+                    <div style={{ display: 'grid', gap: '0.8rem' }}>
+                        <h1 className="panel-heading" style={{ fontSize: '2.7rem', lineHeight: 0.96, margin: 0 }}>
+                            数据库设计控制台
+                        </h1>
+                        <p style={{ color: 'var(--text-secondary)', lineHeight: 1.8, maxWidth: '34rem' }}>
+                            保持结构设计、协作申请、版本存档和 AI 草图在同一套简洁界面内运转。
+                        </p>
+                    </div>
+
+                    <div className="auth-console-notes">
+                        <div className="auth-note-block">
+                            <strong>Versioned</strong>
+                            <span>项目保存、对比与回退在同一工作流里完成。</span>
                         </div>
-                    )}
+                        <div className="auth-note-block">
+                            <strong>Canvas-first</strong>
+                            <span>从画布入手，拖拽表卡并逐步细化结构。</span>
+                        </div>
+                        <div className="auth-note-block">
+                            <strong>AI-assisted</strong>
+                            <span>可用文本或图片快速生成初始 schema。</span>
+                        </div>
+                    </div>
+                </section>
 
-                    <button className="btn-auth" disabled={loading} style={{ opacity: loading ? 0.7 : 1 }}>
-                        {loading ? '处理中...' : (type === 'login' ? '登 录' : '注 册')}
-                    </button>
-                </form>
+                <section className="auth-card auth-card-industrial">
+                    <div style={{ display: 'grid', gap: '0.45rem', marginBottom: '1.8rem' }}>
+                        <span className="ui-kicker">{type === 'login' ? 'Sign In' : 'Register'}</span>
+                        <h2 className="panel-heading" style={{ fontSize: '1.9rem', margin: 0 }}>
+                            {type === 'login' ? '进入工作台' : '创建账号'}
+                        </h2>
+                        <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                            {type === 'login' ? '登录后继续当前项目与结构设计。' : '注册后即可开始创建数据库项目。'}
+                        </p>
+                    </div>
 
-                <div style={{ marginTop: '2rem', textAlign: 'center', color: '#94a3b8' }}>
-                    <p style={{ fontSize: '0.9rem' }}>
-                        {type === 'login' ? "还没有账号？" : "已有账号？"}
-                        <a
-                            href={type === 'login' ? '/register' : '/login'}
-                            style={{ color: '#818cf8', marginLeft: '0.5rem', textDecoration: 'none', fontWeight: 600, transition: 'color 0.2s' }}
-                            onMouseOver={e => e.target.style.color = '#a78bfa'}
-                            onMouseOut={e => e.target.style.color = '#818cf8'}
-                        >
-                            {type === 'login' ? '去注册' : '去登录'}
-                        </a>
-                    </p>
-                </div>
+                    <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '0.85rem' }}>
+                        <div className="auth-input-group">
+                            <span className="auth-icon">👤</span>
+                            <input
+                                type="text"
+                                className="auth-input"
+                                placeholder="用户名"
+                                aria-label="用户名"
+                                autoComplete="username"
+                                value={formData.username}
+                                onChange={(event) => setFormData({ ...formData, username: event.target.value })}
+                                required
+                            />
+                        </div>
+                        <div className="auth-input-group">
+                            <span className="auth-icon">🔒</span>
+                            <input
+                                type="password"
+                                className="auth-input"
+                                placeholder="密码"
+                                aria-label={type === 'register' ? '密码（至少 6 位）' : '密码'}
+                                autoComplete={type === 'register' ? 'new-password' : 'current-password'}
+                                minLength={type === 'register' ? 6 : undefined}
+                                value={formData.password}
+                                onChange={(event) => setFormData({ ...formData, password: event.target.value })}
+                                required
+                            />
+                        </div>
+
+                        {error && (
+                            <div className="auth-error-box">
+                                {error}
+                            </div>
+                        )}
+
+                        <button className="btn-auth" disabled={loading} style={{ opacity: loading ? 0.7 : 1 }}>
+                            {loading ? '处理中...' : (type === 'login' ? '登 录' : '注 册')}
+                        </button>
+                    </form>
+
+                    <div className="auth-subpanel">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', margin: 0 }}>
+                                {type === 'login' ? '还没有账号？' : '已有账号？'}
+                                <Link
+                                    to={type === 'login' ? '/register' : '/login'}
+                                    style={{ color: 'var(--accent-primary)', marginLeft: '0.5rem', textDecoration: 'none', fontWeight: 700 }}
+                                >
+                                    {type === 'login' ? '去注册' : '去登录'}
+                                </Link>
+                            </p>
+                            <span className="project-badge">{type === 'login' ? '首次使用请先注册' : '密码至少 6 位'}</span>
+                        </div>
+                    </div>
+                </section>
             </div>
         </div>
     );

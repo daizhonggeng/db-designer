@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useReducer } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import dagre from 'dagre';
+import { normalizeColumn, normalizeSchema, normalizeTable } from '../utils/schemaModel';
 
 const SchemaContext = createContext();
 
@@ -11,156 +12,239 @@ const initialState = {
     designPreset: null,
     clipboard: null,
     past: [],
-    future: []
+    future: [],
 };
 
-// Helper to save current state to history
-const saveHistory = (state) => {
-    const { tables, relationships, bookmarks } = state;
-    // Limit history stack to 50 steps to prevent memory issues
-    const newPast = [...state.past, { tables, relationships, bookmarks }].slice(-50);
+function createSnapshot(state) {
+    return {
+        tables: state.tables,
+        relationships: state.relationships,
+        bookmarks: state.bookmarks,
+        designPreset: state.designPreset,
+    };
+}
+
+function normalizeSnapshot(snapshot) {
+    const normalized = normalizeSchema(snapshot || {});
+    return {
+        tables: normalized.tables,
+        relationships: normalized.relationships,
+        bookmarks: normalized.bookmarks,
+        designPreset: normalized.designPreset,
+    };
+}
+
+function saveHistory(state) {
+    const newPast = [...state.past, createSnapshot(state)].slice(-50);
     return {
         ...state,
         past: newPast,
-        future: []
+        future: [],
     };
-};
+}
+
+function remapTableForAppend(table, tableIdMap, colIdMap) {
+    const remapColumnIds = (columnIds = []) =>
+        columnIds.map(columnId => colIdMap[columnId]).filter(Boolean);
+
+    const remappedColumns = (table.columns || []).map(column => ({
+        ...column,
+        id: colIdMap[column.id],
+    }));
+
+    const remappedIndexes = (table.indexes || [])
+        .map((indexDef) => ({
+            ...indexDef,
+            id: uuidv4(),
+            columnIds: remapColumnIds(indexDef.columnIds),
+        }))
+        .filter(indexDef => indexDef.columnIds.length > 0);
+
+    const remappedConstraints = (table.constraints || [])
+        .map((constraintDef) => ({
+            ...constraintDef,
+            id: uuidv4(),
+            columnIds: remapColumnIds(constraintDef.columnIds),
+        }))
+        .filter((constraintDef) => {
+            if (constraintDef.type === 'check') {
+                return Boolean((constraintDef.expression || '').trim());
+            }
+            return constraintDef.columnIds.length > 0;
+        });
+
+    return normalizeTable({
+        ...table,
+        id: tableIdMap[table.id],
+        columns: remappedColumns,
+        indexes: remappedIndexes,
+        constraints: remappedConstraints,
+        position: {
+            x: (table.position?.x || 0) + 20,
+            y: (table.position?.y || 0) + 20,
+        },
+    });
+}
 
 function schemaReducer(state, action) {
     switch (action.type) {
-        case 'IMPORT_SCHEMA':
-            // 保存当前状态到历史，然后导入新的 schema
+        case 'LOAD_SCHEMA':
+            return { ...initialState, ...normalizeSnapshot(action.payload) };
+
+        case 'IMPORT_SCHEMA': {
             const importState = saveHistory(state);
+            const normalized = normalizeSchema(action.payload || {});
             return {
                 ...importState,
-                tables: action.payload.tables || [],
-                relationships: action.payload.relationships || [],
-                bookmarks: action.payload.bookmarks || [],
-                designPreset: action.payload.designPreset || null
+                tables: normalized.tables,
+                relationships: normalized.relationships,
+                bookmarks: normalized.bookmarks,
+                designPreset: normalized.designPreset,
             };
+        }
 
         case 'SET_DESIGN_PRESET':
-            return { ...state, designPreset: action.payload };
+            return { ...saveHistory(state), designPreset: action.payload };
 
-        case 'APPEND_SCHEMA':
+        case 'APPEND_SCHEMA': {
             const appendState = saveHistory(state);
-            const incomingSchema = action.payload;
+            const incomingSchema = normalizeSchema(action.payload || {});
 
-            // 1. Create ID Mappings to ensure uniqueness
             const tableIdMap = {};
             const colIdMap = {};
 
-            (incomingSchema.tables || []).forEach(t => {
-                tableIdMap[t.id] = uuidv4();
-                (t.columns || []).forEach(c => {
-                    colIdMap[c.id] = uuidv4();
+            incomingSchema.tables.forEach((table) => {
+                tableIdMap[table.id] = uuidv4();
+                table.columns.forEach((column) => {
+                    colIdMap[column.id] = uuidv4();
                 });
             });
 
-            // 2. Remap Tables
-            // Calculate an offset to avoid perfect overlap if adding multiple times
-            // Simple heuristic: shift by 20px * number of existing tables (modulo something to keep it on screen)
-            const offset = state.tables.length * 20;
+            const newTablesToAppend = incomingSchema.tables
+                .map(table => remapTableForAppend(table, tableIdMap, colIdMap));
 
-            const newTablesToAppend = (incomingSchema.tables || []).map(t => ({
-                ...t,
-                id: tableIdMap[t.id],
-                columns: (t.columns || []).map(c => ({
-                    ...c,
-                    id: colIdMap[c.id]
-                })),
-                position: {
-                    x: (t.position?.x || 0) + 20, // Slight offset from original to show it's new
-                    y: (t.position?.y || 0) + 20
-                }
-            }));
-
-            // 3. Remap Relationships
-            const newRelationshipsToAppend = (incomingSchema.relationships || []).map(r => ({
-                ...r,
-                id: uuidv4(),
-                fromTable: tableIdMap[r.fromTable],
-                fromCol: colIdMap[r.fromCol],
-                toTable: tableIdMap[r.toTable],
-                toCol: colIdMap[r.toCol]
-            })).filter(r => r.fromTable && r.toTable); // Filter out broken relationships if any
+            const newRelationshipsToAppend = incomingSchema.relationships
+                .map((relationship) => ({
+                    ...relationship,
+                    id: uuidv4(),
+                    fromTable: tableIdMap[relationship.fromTable],
+                    fromCol: colIdMap[relationship.fromCol],
+                    toTable: tableIdMap[relationship.toTable],
+                    toCol: colIdMap[relationship.toCol],
+                }))
+                .filter(relationship =>
+                    relationship.fromTable &&
+                    relationship.toTable &&
+                    relationship.fromCol &&
+                    relationship.toCol
+                );
 
             return {
                 ...appendState,
                 tables: [...appendState.tables, ...newTablesToAppend],
-                relationships: [...appendState.relationships, ...newRelationshipsToAppend]
+                relationships: [...appendState.relationships, ...newRelationshipsToAppend],
             };
+        }
 
-        case 'PUSH_HISTORY':
-            // Push a specific state snapshot to history (used for drag operations)
-            const historyState = action.payload;
+        case 'PUSH_HISTORY': {
+            const historyState = normalizeSnapshot(action.payload);
             return {
                 ...state,
                 past: [...state.past, historyState].slice(-50),
-                future: []
+                future: [],
             };
+        }
 
-        case 'SNAPSHOT': // Legacy, can be kept for other non-drag actions if needed
+        case 'SNAPSHOT':
             return saveHistory(state);
 
-        case 'UNDO':
+        case 'UNDO': {
             if (state.past.length === 0) return state;
-            const previous = state.past[state.past.length - 1];
+            const previous = normalizeSnapshot(state.past[state.past.length - 1]);
             const newPast = state.past.slice(0, -1);
             return {
                 ...state,
                 past: newPast,
-                future: [{
-                    tables: state.tables,
-                    relationships: state.relationships,
-                    bookmarks: state.bookmarks
-                }, ...state.future],
+                future: [createSnapshot(state), ...state.future],
                 tables: previous.tables,
                 relationships: previous.relationships,
-                bookmarks: previous.bookmarks
+                bookmarks: previous.bookmarks,
             };
+        }
 
-        case 'REDO':
+        case 'REDO': {
             if (state.future.length === 0) return state;
-            const next = state.future[0];
+            const next = normalizeSnapshot(state.future[0]);
             const newFuture = state.future.slice(1);
             return {
                 ...state,
-                past: [...state.past, {
-                    tables: state.tables,
-                    relationships: state.relationships,
-                    bookmarks: state.bookmarks
-                }],
+                past: [...state.past, createSnapshot(state)],
                 future: newFuture,
                 tables: next.tables,
                 relationships: next.relationships,
-                bookmarks: next.bookmarks
+                bookmarks: next.bookmarks,
             };
+        }
 
-        // Clipboard Actions
-        case 'COPY_TABLE':
-            const tableToCopy = state.tables.find(t => t.id === action.payload);
+        case 'COPY_TABLE': {
+            const tableToCopy = state.tables.find(table => table.id === action.payload);
             if (!tableToCopy) return state;
             return { ...state, clipboard: { type: 'table', data: tableToCopy } };
+        }
 
-        case 'PASTE_TABLE':
+        case 'PASTE_TABLE': {
             if (!state.clipboard || state.clipboard.type !== 'table') return state;
             const newStateAfterPaste = saveHistory(state);
-            const pastedTable = state.clipboard.data;
-            const newTable = {
+            const pastedTable = normalizeTable(state.clipboard.data);
+
+            const colIdMap = {};
+            pastedTable.columns.forEach((column) => {
+                colIdMap[column.id] = uuidv4();
+            });
+
+            const remapColumnIds = (columnIds = []) =>
+                columnIds.map(columnId => colIdMap[columnId]).filter(Boolean);
+
+            const newTable = normalizeTable({
                 ...pastedTable,
                 id: uuidv4(),
-                name: pastedTable.name + '_copy',
-                position: { x: pastedTable.position.x + 20, y: pastedTable.position.y + 20 },
-                columns: pastedTable.columns.map(c => ({ ...c, id: uuidv4() })),
-                bookmarkId: null // Don't paste into bookmark by default unless logic added
-            };
+                name: `${pastedTable.name}_copy`,
+                position: {
+                    x: pastedTable.position.x + 20,
+                    y: pastedTable.position.y + 20,
+                },
+                columns: pastedTable.columns.map(column => ({
+                    ...column,
+                    id: colIdMap[column.id],
+                })),
+                indexes: (pastedTable.indexes || [])
+                    .map(indexDef => ({
+                        ...indexDef,
+                        id: uuidv4(),
+                        columnIds: remapColumnIds(indexDef.columnIds),
+                    }))
+                    .filter(indexDef => indexDef.columnIds.length > 0),
+                constraints: (pastedTable.constraints || [])
+                    .map(constraintDef => ({
+                        ...constraintDef,
+                        id: uuidv4(),
+                        columnIds: remapColumnIds(constraintDef.columnIds),
+                    }))
+                    .filter((constraintDef) => {
+                        if (constraintDef.type === 'check') {
+                            return Boolean((constraintDef.expression || '').trim());
+                        }
+                        return constraintDef.columnIds.length > 0;
+                    }),
+                bookmarkId: null,
+            });
+
             return {
                 ...newStateAfterPaste,
-                tables: [...newStateAfterPaste.tables, newTable]
+                tables: [...newStateAfterPaste.tables, newTable],
             };
+        }
 
-        // Bookmark Actions
         case 'ADD_BOOKMARK':
             return {
                 ...saveHistory(state),
@@ -174,167 +258,266 @@ function schemaReducer(state, action) {
                         width: 400,
                         height: 300,
                         color: 'rgba(255, 255, 255, 0.05)',
-                        ...action.payload
-                    }
-                ]
+                        ...action.payload,
+                    },
+                ],
             };
+
         case 'UPDATE_BOOKMARK':
-            // For simple updates (rename), we might not want to save history every keystroke.
-            // But for now, let's save it. Ideally, use onBlur for history.
             return {
-                ...state, // Don't save history on every keystroke, rely on SNAPSHOT or specific actions
-                bookmarks: state.bookmarks.map(b =>
-                    b.id === action.payload.id ? { ...b, ...action.payload.updates } : b
-                )
+                ...state,
+                bookmarks: state.bookmarks.map(bookmark =>
+                    bookmark.id === action.payload.id
+                        ? { ...bookmark, ...action.payload.updates }
+                        : bookmark
+                ),
             };
-        case 'MOVE_BOOKMARK':
-            // Don't save history here, too frequent.
+
+        case 'MOVE_BOOKMARK': {
             const { id, dx, dy } = action.payload;
-            const updatedBookmarks = state.bookmarks.map(b =>
-                b.id === id ? { ...b, x: b.x + dx, y: b.y + dy } : b
+            const updatedBookmarks = state.bookmarks.map(bookmark =>
+                bookmark.id === id
+                    ? { ...bookmark, x: bookmark.x + dx, y: bookmark.y + dy }
+                    : bookmark
             );
-            const updatedTables = state.tables.map(t =>
-                t.bookmarkId === id ? { ...t, position: { x: t.position.x + dx, y: t.position.y + dy } } : t
+            const updatedTables = state.tables.map(table =>
+                table.bookmarkId === id
+                    ? { ...table, position: { x: table.position.x + dx, y: table.position.y + dy } }
+                    : table
             );
             return {
                 ...state,
                 bookmarks: updatedBookmarks,
-                tables: updatedTables
+                tables: updatedTables,
             };
+        }
+
         case 'DELETE_BOOKMARK':
             return {
                 ...saveHistory(state),
-                bookmarks: state.bookmarks.filter(b => b.id !== action.payload),
-                tables: state.tables.map(t => t.bookmarkId === action.payload ? { ...t, bookmarkId: null } : t)
+                bookmarks: state.bookmarks.filter(bookmark => bookmark.id !== action.payload),
+                tables: state.tables.map(table =>
+                    table.bookmarkId === action.payload
+                        ? { ...table, bookmarkId: null }
+                        : table
+                ),
             };
+
         case 'ASSIGN_TABLE_TO_BOOKMARK':
             return {
                 ...state,
-                tables: state.tables.map(t =>
-                    t.id === action.payload.tableId ? { ...t, bookmarkId: action.payload.bookmarkId } : t
-                )
+                tables: state.tables.map(table =>
+                    table.id === action.payload.tableId
+                        ? { ...table, bookmarkId: action.payload.bookmarkId }
+                        : table
+                ),
             };
 
-        // Table Actions
-        case 'ADD_TABLE':
+        case 'ADD_TABLE': {
+            let serial = state.tables.length + 1;
+            while (state.tables.some(table => table.name === `table_${serial}`)) serial += 1;
+            const newTable = normalizeTable({
+                id: uuidv4(),
+                name: `table_${serial}`,
+                position: { x: 70 + (state.tables.length % 3) * 420, y: 110 + Math.floor(state.tables.length / 3) * 380 },
+                columns: [
+                    {
+                        id: uuidv4(),
+                        name: 'id',
+                        type: 'VARCHAR(255)',
+                        isPk: true,
+                        nullable: false,
+                        defaultValue: '',
+                        isUnique: true,
+                        isAutoIncrement: false,
+                    },
+                ],
+                indexes: [],
+                constraints: [],
+                bookmarkId: null,
+            });
+
             return {
                 ...saveHistory(state),
-                tables: [...state.tables, {
-                    id: uuidv4(),
-                    name: 'new_table',
-                    position: { x: 250, y: 250 },
-                    columns: [
-                        { id: uuidv4(), name: 'id', type: 'VARCHAR(255)', isPk: true }
-                    ],
-                    bookmarkId: null
-                }]
+                tables: [...state.tables, newTable],
             };
-        case 'UPDATE_TABLE':
+        }
+
+        case 'UPDATE_TABLE': {
+            const tables = state.tables.map(table => table.id === action.payload.id ? normalizeTable({ ...table, ...action.payload }) : table);
+            const table = tables.find(item => item.id === action.payload.id);
+            const columnIds = new Set(table?.columns.map(column => column.id));
             return {
-                ...state,
-                tables: state.tables.map(t => t.id === action.payload.id ? { ...t, ...action.payload } : t)
+                ...saveHistory(state),
+                tables,
+                relationships: state.relationships.filter(relationship =>
+                    (relationship.fromTable !== table?.id || columnIds.has(relationship.fromCol)) &&
+                    (relationship.toTable !== table?.id || columnIds.has(relationship.toCol))
+                ),
             };
+        }
+
         case 'DELETE_TABLE':
             return {
                 ...saveHistory(state),
-                tables: state.tables.filter(t => t.id !== action.payload),
-                relationships: state.relationships.filter(r => r.fromTable !== action.payload && r.toTable !== action.payload)
+                tables: state.tables.filter(table => table.id !== action.payload),
+                relationships: state.relationships.filter(
+                    relationship =>
+                        relationship.fromTable !== action.payload &&
+                        relationship.toTable !== action.payload
+                ),
             };
+
         case 'ADD_COLUMN':
             return {
                 ...saveHistory(state),
-                tables: state.tables.map(t => t.id === action.payload.tableId ? {
-                    ...t,
-                    columns: [...t.columns, { id: uuidv4(), name: 'new_col', type: 'VARCHAR(255)', isPk: false }]
-                } : t)
+                tables: state.tables.map(table => (table.id === action.payload.tableId
+                    ? normalizeTable({
+                        ...table,
+                        columns: [
+                            ...table.columns,
+                            normalizeColumn({
+                                id: uuidv4(),
+                                name: 'new_col',
+                                type: 'VARCHAR(255)',
+                                isPk: false,
+                                nullable: true,
+                                defaultValue: '',
+                                isUnique: false,
+                                isAutoIncrement: false,
+                                comment: '',
+                            }),
+                        ],
+                    })
+                    : table)),
             };
+
         case 'UPDATE_COLUMN':
             return {
-                ...state,
-                tables: state.tables.map(t => t.id === action.payload.tableId ? {
-                    ...t,
-                    columns: t.columns.map(c => c.id === action.payload.columnId ? { ...c, ...action.payload.updates } : c)
-                } : t)
+                ...saveHistory(state),
+                tables: state.tables.map(table => (table.id === action.payload.tableId
+                    ? normalizeTable({
+                        ...table,
+                        columns: table.columns.map(column => (column.id === action.payload.columnId
+                            ? normalizeColumn({ ...column, ...action.payload.updates })
+                            : column)),
+                    })
+                    : table)),
             };
+
         case 'DELETE_COLUMN':
             return {
                 ...saveHistory(state),
-                tables: state.tables.map(t => t.id === action.payload.tableId ? {
-                    ...t,
-                    columns: t.columns.filter(c => c.id !== action.payload.columnId)
-                } : t)
+                tables: state.tables.map((table) => {
+                    if (table.id !== action.payload.tableId) {
+                        return table;
+                    }
+
+                    const remainingColumns = table.columns.filter(column => column.id !== action.payload.columnId);
+
+                    const remainingIndexes = (table.indexes || [])
+                        .map(indexDef => ({
+                            ...indexDef,
+                            columnIds: (indexDef.columnIds || []).filter(columnId => columnId !== action.payload.columnId),
+                        }))
+                        .filter(indexDef => indexDef.columnIds.length > 0);
+
+                    const remainingConstraints = (table.constraints || [])
+                        .map(constraintDef => ({
+                            ...constraintDef,
+                            columnIds: (constraintDef.columnIds || []).filter(columnId => columnId !== action.payload.columnId),
+                        }))
+                        .filter((constraintDef) => {
+                            if (constraintDef.type === 'check') {
+                                return Boolean((constraintDef.expression || '').trim());
+                            }
+                            return constraintDef.columnIds.length > 0;
+                        });
+
+                    return normalizeTable({
+                        ...table,
+                        columns: remainingColumns,
+                        indexes: remainingIndexes,
+                        constraints: remainingConstraints,
+                    });
+                }),
+                relationships: state.relationships.filter(relationship =>
+                    relationship.fromCol !== action.payload.columnId &&
+                    relationship.toCol !== action.payload.columnId
+                ),
             };
+
         case 'MOVE_TABLE':
-            // No history here
             return {
                 ...state,
-                tables: state.tables.map(t => t.id === action.payload.id ? {
-                    ...t,
-                    position: action.payload.position
-                } : t)
+                tables: state.tables.map(table => (table.id === action.payload.id
+                    ? { ...table, position: action.payload.position }
+                    : table)),
             };
+
         case 'RESIZE_TABLE':
             return {
                 ...state,
-                tables: state.tables.map(t => t.id === action.payload.id ? {
-                    ...t,
-                    width: action.payload.width,
-                    height: action.payload.height
-                } : t)
+                tables: state.tables.map(table => (table.id === action.payload.id
+                    ? { ...table, width: action.payload.width, height: action.payload.height }
+                    : table)),
             };
+
         case 'ADD_RELATIONSHIP':
             return {
                 ...saveHistory(state),
-                relationships: [...state.relationships, action.payload]
+                relationships: [...state.relationships, { id: uuidv4(), ...action.payload }],
             };
+
         case 'DELETE_RELATIONSHIP':
             return {
                 ...saveHistory(state),
-                relationships: state.relationships.filter(r => r.id !== action.payload)
+                relationships: state.relationships.filter(relationship => relationship.id !== action.payload),
             };
 
-        case 'AUTO_LAYOUT':
+        case 'AUTO_LAYOUT': {
             const layoutState = saveHistory(state);
             const { tables, relationships } = layoutState;
 
-            // Use dagre for graph layout
-            const g = new dagre.graphlib.Graph();
-            g.setGraph({
+            const graph = new dagre.graphlib.Graph();
+            graph.setGraph({
                 rankdir: action.payload || 'LR',
                 nodesep: 50,
                 ranksep: 100,
                 marginx: 50,
-                marginy: 50
+                marginy: 50,
             });
-            g.setDefaultEdgeLabel(() => ({}));
-            tables.forEach(t => {
-                g.setNode(t.id, { width: t.width || 240, height: t.height || 300 });
+            graph.setDefaultEdgeLabel(() => ({}));
+
+            tables.forEach((table) => {
+                graph.setNode(table.id, {
+                    width: table.width || 240,
+                    height: table.height || 300,
+                });
             });
 
-            // Add edges (relationships)
-            relationships.forEach(r => {
-                g.setEdge(r.fromTable, r.toTable);
+            relationships.forEach((relationship) => {
+                graph.setEdge(relationship.fromTable, relationship.toTable);
             });
 
-            // Calculate layout
-            dagre.layout(g);
+            dagre.layout(graph);
 
-            // Apply new positions
-            const newTables = tables.map(t => {
-                const node = g.node(t.id);
+            const newTables = tables.map((table) => {
+                const node = graph.node(table.id);
                 return {
-                    ...t,
+                    ...table,
                     position: {
-                        x: node.x - (t.width || 240) / 2, // dagre returns center, we need top-left
-                        y: node.y - (t.height || 300) / 2
-                    }
+                        x: node.x - (table.width || 240) / 2,
+                        y: node.y - (table.height || 300) / 2,
+                    },
                 };
             });
 
             return {
                 ...layoutState,
-                tables: newTables
+                tables: newTables,
             };
+        }
 
         default:
             return state;
