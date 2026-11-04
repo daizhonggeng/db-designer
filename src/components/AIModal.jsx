@@ -4,7 +4,7 @@ import { generateSchema } from '../services/aiService';
 import { useSchema } from '../store/schemaStore';
 
 export default function AIModal({ onClose }) {
-    const { dispatch } = useSchema();
+    const { state, dispatch } = useSchema();
     const [description, setDescription] = useState('');
     const [image, setImage] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -59,7 +59,7 @@ export default function AIModal({ onClose }) {
         setError(null);
         setResult(null);
         try {
-            const data = await generateSchema(description, image);
+            const data = await generateSchema(description, image, state.designPreset);
             setResult(data);
         } catch (err) {
             setError(err.message || "生成失败，请重试");
@@ -151,6 +151,14 @@ export default function AIModal({ onClose }) {
                     <p style={{ color: 'var(--text-secondary)' }}>
                         描述您的系统需求，或者上传图片。
                     </p>
+                    {state.designPreset?.rules && (
+                        <details style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                            <summary style={{ cursor: 'pointer', color: 'var(--accent-primary)' }}>已启用项目规范预设（点击查看）</summary>
+                            <div style={{ whiteSpace: 'pre-wrap', maxHeight: '160px', overflowY: 'auto', paddingTop: '8px' }}>
+                                {state.designPreset.rules}
+                            </div>
+                        </details>
+                    )}
 
                     <div
                         style={{ display: 'flex', gap: '1rem', height: '200px' }}

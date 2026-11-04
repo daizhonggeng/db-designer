@@ -1,0 +1,120 @@
+.preset-overlay {
+    z-index: 10000;
+    padding: 16px;
+}
+
+.preset-modal {
+    width: 760px;
+    max-width: 100%;
+    padding: 0;
+    color: var(--text-primary);
+}
+
+.preset-header, .preset-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding: 20px 24px;
+    flex-shrink: 0;
+}
+
+.preset-header {
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.preset-header h2 {
+    font-size: 1.25rem;
+}
+
+.preset-header p, .preset-upload p, .preset-help, .preset-upload-actions span {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.6;
+}
+
+.preset-header p {
+    margin-top: 6px;
+}
+
+.preset-body {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    overflow-y: auto;
+    padding: 24px;
+}
+
+.preset-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.preset-field input, .preset-field textarea {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font: inherit;
+    line-height: 1.6;
+}
+
+.preset-field textarea {
+    resize: vertical;
+    min-height: 180px;
+}
+
+.preset-field input:focus, .preset-field textarea:focus {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+.preset-upload {
+    padding: 16px;
+    border: 1px dashed var(--glass-border);
+    border-radius: var(--radius-md);
+    background: var(--glass-highlight);
+}
+
+.preset-upload h3 {
+    font-size: 1rem;
+    margin-bottom: 8px;
+}
+
+.preset-upload input {
+    max-width: 100%;
+    margin-top: 12px;
+}
+
+.preset-upload-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.preset-upload .preset-filename {
+    margin-top: 8px;
+    overflow-wrap: anywhere;
+    color: var(--accent-primary);
+}
+
+.preset-footer {
+    justify-content: flex-end;
+    border-top: 1px solid var(--glass-border);
+}
+
+.preset-error {
+    color: var(--accent-danger);
+    line-height: 1.6;
+}
+
+@media (max-width: 600px) {
+    .preset-header, .preset-body, .preset-footer {
+        padding: 16px;
+    }
+}

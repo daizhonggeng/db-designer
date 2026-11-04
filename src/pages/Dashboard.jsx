@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config';
+import ProjectPresetModal from '../components/ProjectPresetModal';
 
 export default function Dashboard() {
     const navigate = useNavigate();
@@ -10,6 +11,7 @@ export default function Dashboard() {
     const [availableProjects, setAvailableProjects] = useState([]);
     const [showRequestsModal, setShowRequestsModal] = useState(null);
     const [requests, setRequests] = useState([]);
+    const [showCreateModal, setShowCreateModal] = useState(false);
 
     useEffect(() => {
         const storedUser = localStorage.getItem('user');
@@ -37,30 +39,26 @@ export default function Dashboard() {
         }
     };
 
-    const createProject = async () => {
-        const name = prompt('请输入项目名称:');
-        if (!name) return;
+    const createProject = async ({ name, preset }) => {
+        const res = await fetch(`${API_BASE_URL}/api/projects`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: user.id,
+                name,
+                schema: { tables: [], relationships: [], bookmarks: [], designPreset: preset }
+            })
+        });
 
-        try {
-            const res = await fetch(`${API_BASE_URL}/api/projects`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: user.id, name })
-            });
-
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => ({ error: '创建项目失败' }));
-                throw new Error(errorData.error || '创建项目失败');
-            }
-
-            const newProject = await res.json();
-            if (!newProject.id) throw new Error('返回的项目数据无效');
-
-            navigate(`/editor/${newProject.id}`);
-        } catch (err) {
-            console.error('Create project error:', err);
-            alert('创建项目失败: ' + err.message);
+        if (!res.ok) {
+            const errorData = await res.json().catch(() => ({ error: '创建项目失败' }));
+            throw new Error(errorData.error || '创建项目失败');
         }
+
+        const newProject = await res.json();
+        if (!newProject.id) throw new Error('返回的项目数据无效');
+
+        navigate(`/editor/${newProject.id}`);
     };
 
     const deleteProject = async (projectId, projectName, e) => {
@@ -244,7 +242,7 @@ export default function Dashboard() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '1.5rem' }}>
                     <div
                         className="glass"
-                        onClick={createProject}
+                        onClick={() => setShowCreateModal(true)}
                         style={{
                             height: '150px',
                             display: 'flex',
@@ -289,6 +287,10 @@ export default function Dashboard() {
                     )}
                 </div>
             </section>
+
+            {showCreateModal && (
+                <ProjectPresetModal creating onSave={createProject} onClose={() => setShowCreateModal(false)} />
+            )}
 
             {/* 申请列表弹窗 */}
             {showRequestsModal && (

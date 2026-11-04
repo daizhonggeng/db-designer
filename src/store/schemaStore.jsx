@@ -8,6 +8,7 @@ const initialState = {
     tables: [],
     relationships: [],
     bookmarks: [],
+    designPreset: null,
     clipboard: null,
     past: [],
     future: []
@@ -34,8 +35,12 @@ function schemaReducer(state, action) {
                 ...importState,
                 tables: action.payload.tables || [],
                 relationships: action.payload.relationships || [],
-                bookmarks: action.payload.bookmarks || []
+                bookmarks: action.payload.bookmarks || [],
+                designPreset: action.payload.designPreset || null
             };
+
+        case 'SET_DESIGN_PRESET':
+            return { ...state, designPreset: action.payload };
 
         case 'APPEND_SCHEMA':
             const appendState = saveHistory(state);

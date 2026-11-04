@@ -4,6 +4,7 @@ import { useSchema } from '../store/schemaStore';
 import { useTheme } from '../store/themeStore';
 import { useSettings } from '../store/settingsStore';
 import AIModal from './AIModal';
+import ProjectPresetModal from './ProjectPresetModal';
 import VersionHistoryModal from './VersionHistoryModal';
 import ExportModal from './ExportModal';
 import ReverseEngineeringModal from './ReverseEngineeringModal';
@@ -18,6 +19,7 @@ export default function TopBar({ projectId }) {
     const { theme, toggleTheme } = useTheme();
     const { dbDialect, setDbDialect } = useSettings();
     const [showAI, setShowAI] = useState(false);
+    const [showPreset, setShowPreset] = useState(false);
     const [showHistory, setShowHistory] = useState(false);
     const [showExportModal, setShowExportModal] = useState(false);
     const [showRevEng, setShowRevEng] = useState(false);
@@ -40,42 +42,57 @@ export default function TopBar({ projectId }) {
     };
 
 
-    const saveProject = async () => {
-        setSaving(true);
+    const persistProject = async (schema) => {
+        // 1. Save Project (Current State)
+        const res = await fetch(`${API_BASE_URL}/api/projects/${projectId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schema })
+        });
+
+        if (!res.ok) {
+            const errorData = await res.json().catch(() => ({ error: '保存失败' }));
+            throw new Error(errorData.error || '保存项目失败');
+        }
+
+        // 项目已保存，版本创建失败时仍应保留这次保存结果。
+        const user = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')).username : 'Unknown';
         try {
-            // 1. Save Project (Current State)
-            const res = await fetch(`${API_BASE_URL}/api/projects/${projectId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ schema: state })
-            });
-
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => ({ error: '保存失败' }));
-                throw new Error(errorData.error || '保存项目失败');
-            }
-
-            // 2. Create Version Automatically
-            const user = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')).username : 'Unknown';
             const versionRes = await fetch(`${API_BASE_URL}/api/projects/${projectId}/versions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    schema: state,
-                    user,
-                    description: ''
-                })
+                body: JSON.stringify({ schema, user, description: '' })
             });
-
             if (!versionRes.ok) {
                 const errorData = await versionRes.json().catch(() => ({ error: '创建版本失败' }));
                 throw new Error(errorData.error || '创建版本失败');
             }
+        } catch (err) {
+            return '项目已保存，但历史版本创建失败：' + err.message;
+        }
+        return null;
+    };
 
-            setToast({ message: '保存成功！已生成新版本。', type: 'success' });
+    const saveProject = async () => {
+        setSaving(true);
+        try {
+            const warning = await persistProject(state);
+            setToast({ message: warning || '保存成功！已生成新版本。', type: warning ? 'error' : 'success' });
         } catch (err) {
             console.error('Save error:', err);
             setToast({ message: '保存失败: ' + err.message, type: 'error' });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const savePreset = async ({ preset }) => {
+        setSaving(true);
+        try {
+            const warning = await persistProject({ ...state, designPreset: preset });
+            dispatch({ type: 'SET_DESIGN_PRESET', payload: preset });
+            setShowPreset(false);
+            setToast({ message: warning || '规范预设已保存，后续 AI 设计将自动参考。', type: warning ? 'error' : 'success' });
         } finally {
             setSaving(false);
         }
@@ -170,7 +187,7 @@ export default function TopBar({ projectId }) {
                 style={{
                     position: 'absolute',
                     top: 'var(--spacing-md)',
-                    left: 'calc(50% + 120px)', // Shift right to avoid sidebar
+                    left: 'calc(50% + 120px)',
                     transform: 'translateX(-50%)',
                     padding: 'var(--spacing-sm) var(--spacing-lg)',
                     display: 'flex',
@@ -178,9 +195,11 @@ export default function TopBar({ projectId }) {
                     borderRadius: 'var(--radius-full)',
                     zIndex: 100,
                     alignItems: 'center',
-                    flexWrap: 'nowrap', // Prevent wrapping
-                    whiteSpace: 'nowrap', // Prevent text wrapping
-                    maxWidth: '95vw', // Ensure it fits on screen
+                    flexWrap: 'wrap',
+                    justifyContent: 'center',
+                    whiteSpace: 'nowrap',
+                    width: 'max-content',
+                    maxWidth: 'calc(100vw - 272px)',
                     overflow: 'visible' // Allow dropdown to show
                 }}
             >
@@ -220,6 +239,10 @@ export default function TopBar({ projectId }) {
                     }}
                 >
                     ✨ AI 设计
+                </button>
+
+                <button className="btn" onClick={() => setShowPreset(true)} disabled={saving} title="查看和编辑项目设计规范">
+                    📋 规范预设{state.designPreset?.rules ? ' ✓' : ''}
                 </button>
 
                 <div style={{ position: 'relative' }}>
@@ -448,6 +471,13 @@ export default function TopBar({ projectId }) {
             </div>
 
             {showAI && <AIModal onClose={() => setShowAI(false)} />}
+            {showPreset && (
+                <ProjectPresetModal
+                    initialPreset={state.designPreset}
+                    onSave={savePreset}
+                    onClose={() => setShowPreset(false)}
+                />
+            )}
             {showHistory && (
                 <VersionHistoryModal
                     projectId={projectId}
