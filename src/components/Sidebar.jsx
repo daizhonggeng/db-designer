@@ -21,7 +21,8 @@ export default function Sidebar({ onLocateTable }) {
 
         return state.tables.filter((table) => (
             table.name.toLowerCase().includes(normalizedSearchTerm)
-            || table.columns.some((column) => column.name.toLowerCase().includes(normalizedSearchTerm))
+            || table.comment?.toLowerCase().includes(normalizedSearchTerm)
+            || table.columns.some((column) => column.name.toLowerCase().includes(normalizedSearchTerm) || column.comment?.toLowerCase().includes(normalizedSearchTerm))
         ));
     }, [searchTerm, state.tables]);
 
@@ -62,7 +63,8 @@ export default function Sidebar({ onLocateTable }) {
                 <input
                     value={searchTerm}
                     onChange={(event) => setSearchTerm(event.target.value)}
-                    placeholder="搜索表名或字段名"
+                    placeholder="搜索表名、字段或中文注释"
+                    aria-label="搜索表或字段"
                     className="ui-input"
                     style={{ marginTop: '10px' }}
                 />
@@ -84,7 +86,7 @@ export default function Sidebar({ onLocateTable }) {
                                     ▶
                                 </span>
                                 <span style={{ flex: 1, fontSize: '0.88rem', color: 'var(--text-primary)', fontWeight: '600' }}>
-                                    {table.name}
+                                    {table.name}{table.comment && <small style={{ display: 'block', color: 'var(--text-secondary)', fontWeight: 400 }}>{table.comment}</small>}
                                 </span>
                                 <span className="project-badge" style={{ marginRight: '0.35rem' }}>{table.columns.length}</span>
                                 <button
@@ -101,12 +103,12 @@ export default function Sidebar({ onLocateTable }) {
                                 </button>
                             </div>
 
-                            {expandedTables[table.id] && (
+                            {(expandedTables[table.id] || searchTerm.trim()) && (
                                 <div style={{ padding: '0.3rem 0.4rem 0.5rem 1.2rem' }}>
                                     {table.columns
                                         .filter((column) => {
                                             const normalizedSearchTerm = searchTerm.trim().toLowerCase();
-                                            return !normalizedSearchTerm || table.name.toLowerCase().includes(normalizedSearchTerm) || column.name.toLowerCase().includes(normalizedSearchTerm);
+                                            return !normalizedSearchTerm || table.name.toLowerCase().includes(normalizedSearchTerm) || table.comment?.toLowerCase().includes(normalizedSearchTerm) || column.name.toLowerCase().includes(normalizedSearchTerm) || column.comment?.toLowerCase().includes(normalizedSearchTerm);
                                         })
                                         .map((column) => {
                                             const isFk = state.relationships.some((relationship) => relationship.fromTable === table.id && relationship.fromCol === column.id);
@@ -115,7 +117,7 @@ export default function Sidebar({ onLocateTable }) {
                                                     <span style={{ marginRight: '6px', fontSize: '12px' }}>
                                                         {column.isPk ? '🔑' : (isFk ? '🔗' : '•')}
                                                     </span>
-                                                    <span style={{ flex: 1, color: 'var(--text-primary)' }}>{column.name}</span>
+                                                    <span style={{ flex: 1, color: 'var(--text-primary)' }}>{column.name}{column.comment && <small style={{ display: 'block', color: 'var(--text-secondary)' }}>{column.comment}</small>}</span>
                                                     <span style={{ fontSize: '0.74rem', color: 'var(--accent-secondary)', opacity: 0.8 }}>{column.type}</span>
                                                 </div>
                                             );

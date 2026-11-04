@@ -85,6 +85,9 @@ function remapTableForAppend(table, tableIdMap, colIdMap) {
 
 function schemaReducer(state, action) {
     switch (action.type) {
+        case 'LOAD_SCHEMA':
+            return { ...initialState, ...normalizeSnapshot(action.payload) };
+
         case 'IMPORT_SCHEMA': {
             const importState = saveHistory(state);
             const normalized = normalizeSchema(action.payload || {});
@@ -304,10 +307,12 @@ function schemaReducer(state, action) {
             };
 
         case 'ADD_TABLE': {
+            let serial = state.tables.length + 1;
+            while (state.tables.some(table => table.name === `table_${serial}`)) serial += 1;
             const newTable = normalizeTable({
                 id: uuidv4(),
-                name: 'new_table',
-                position: { x: 250, y: 250 },
+                name: `table_${serial}`,
+                position: { x: 70 + (state.tables.length % 3) * 420, y: 110 + Math.floor(state.tables.length / 3) * 380 },
                 columns: [
                     {
                         id: uuidv4(),
@@ -331,15 +336,19 @@ function schemaReducer(state, action) {
             };
         }
 
-        case 'UPDATE_TABLE':
+        case 'UPDATE_TABLE': {
+            const tables = state.tables.map(table => table.id === action.payload.id ? normalizeTable({ ...table, ...action.payload }) : table);
+            const table = tables.find(item => item.id === action.payload.id);
+            const columnIds = new Set(table?.columns.map(column => column.id));
             return {
-                ...state,
-                tables: state.tables.map((table) => {
-                    if (table.id !== action.payload.id) return table;
-                    const mergedTable = { ...table, ...action.payload };
-                    return normalizeTable(mergedTable);
-                }),
+                ...saveHistory(state),
+                tables,
+                relationships: state.relationships.filter(relationship =>
+                    (relationship.fromTable !== table?.id || columnIds.has(relationship.fromCol)) &&
+                    (relationship.toTable !== table?.id || columnIds.has(relationship.toCol))
+                ),
             };
+        }
 
         case 'DELETE_TABLE':
             return {
@@ -378,7 +387,7 @@ function schemaReducer(state, action) {
 
         case 'UPDATE_COLUMN':
             return {
-                ...state,
+                ...saveHistory(state),
                 tables: state.tables.map(table => (table.id === action.payload.tableId
                     ? normalizeTable({
                         ...table,

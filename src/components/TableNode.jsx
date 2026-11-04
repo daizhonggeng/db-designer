@@ -7,7 +7,7 @@ import { hexToRgba } from '../utils/colors';
 import { generateTableSQL } from '../utils/sqlGenerator';
 import TableEditModal from './TableEditModal';
 
-export default function TableNode({ table, onStartConnect, onCompleteConnect, onMouseEnter, onMouseLeave }) {
+export default function TableNode({ table, onStartConnect, onCompleteConnect, onMouseEnter, onMouseLeave, onMeasure }) {
     const { state, dispatch } = useSchema();
     const { dbDialect } = useSettings();
     const nodeRef = useRef(null);
@@ -31,6 +31,8 @@ export default function TableNode({ table, onStartConnect, onCompleteConnect, on
         const observer = new ResizeObserver(entries => {
             for (let entry of entries) {
                 const { width, height } = entry.contentRect;
+                const columnOffsets = Object.fromEntries(Array.from(nodeRef.current.querySelectorAll('[data-column-id]')).map(row => [row.dataset.columnId, row.offsetTop + row.offsetHeight / 2]));
+                onMeasure(table.id, { width, height, columnOffsets });
                 requestAnimationFrame(() => {
                     dispatch({
                         type: 'RESIZE_TABLE',
@@ -42,7 +44,7 @@ export default function TableNode({ table, onStartConnect, onCompleteConnect, on
 
         observer.observe(nodeRef.current);
         return () => observer.disconnect();
-    }, [table.id, dispatch]);
+    }, [table.id, table.columns, dispatch, onMeasure]);
 
     const handleSaveTable = (updatedTable) => {
         dispatch({
@@ -93,7 +95,7 @@ export default function TableNode({ table, onStartConnect, onCompleteConnect, on
         left: table.position.x,
         top: table.position.y,
         minWidth: '280px',
-        width: 'auto',
+        width: '360px',
         display: 'inline-flex',
         flexDirection: 'column',
         borderRadius: 'var(--radius-lg)',
@@ -386,7 +388,7 @@ export default function TableNode({ table, onStartConnect, onCompleteConnect, on
             )}
 
             {/* Columns */}
-            <div style={{ padding: '0.65rem', display: 'grid', gap: '0.32rem', background: 'rgba(4, 14, 20, 0.2)' }}>
+            <div style={{ padding: '0.65rem', display: 'grid', minWidth: 0, gap: '0.32rem', background: 'rgba(4, 14, 20, 0.2)' }}>
                 {table.columns.map((col, index) => (
                     <ColumnRow
                         key={col.id}
@@ -443,6 +445,8 @@ function ColumnRow({ tableId, column, dispatch, onStartConnect, onCompleteConnec
                 background: isHovered ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.02)',
                 border: `1px solid ${isHovered ? 'rgba(255,255,255,0.08)' : 'transparent'}`
             }}
+            data-column-id={column.id}
+            className="table-column"
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
         >

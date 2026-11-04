@@ -5,6 +5,7 @@ import { apiGet, apiPut } from '../services/api';
 export default function VersionHistoryModal({ projectId, onClose, onRestore }) {
     const [versions, setVersions] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
 
     // Editing state
     const [editingId, setEditingId] = useState(null);
@@ -15,7 +16,7 @@ export default function VersionHistoryModal({ projectId, onClose, onRestore }) {
             const data = await apiGet(`/api/projects/${projectId}/versions`);
             setVersions(data);
         } catch (err) {
-            console.error(err);
+            setError(err.message || '历史版本加载失败');
         } finally {
             setLoading(false);
         }
@@ -26,7 +27,7 @@ export default function VersionHistoryModal({ projectId, onClose, onRestore }) {
     }, [fetchVersions]);
 
     const handleRestore = async (versionId) => {
-        if (!confirm('确定要回退到此版本吗？当前未保存的修改将丢失。')) return;
+        if (!confirm('将此版本载入画布？可以撤销恢复操作；自动保存开启时会同步保存。')) return;
         try {
             const data = await apiGet(`/api/versions/${versionId}`);
 
@@ -83,7 +84,7 @@ export default function VersionHistoryModal({ projectId, onClose, onRestore }) {
                 </div>
 
                 <div style={{ flex: 1, overflowY: 'auto', minHeight: '200px' }}>
-                    {loading ? <p style={{ color: 'var(--text-secondary)' }}>加载中...</p> : (
+                    {error ? <p role="alert" className="inline-error">{error}</p> : loading ? <p style={{ color: 'var(--text-secondary)' }}>加载中...</p> : (
                         versions.length === 0 ? <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>暂无历史版本</p> : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                 {versions.map(v => (

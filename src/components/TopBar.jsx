@@ -1,5 +1,4 @@
-import React, { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSchema } from '../store/schemaStore';
 import { useTheme } from '../store/themeStore';
 import { useSettings } from '../store/settingsStore';
@@ -11,10 +10,10 @@ import SchemaValidationModal from './SchemaValidationModal';
 import SchemaDiffModal from './SchemaDiffModal';
 import Toast from './Toast';
 import * as htmlToImage from 'html-to-image';
-import { apiPost, apiPut } from '../services/api';
 import { getStoredUser } from '../utils/storage';
 import { validateSchema } from '../utils/schema';
 import Logo from './Logo';
+import { downloadProject, parseProjectFile } from '../utils/projectData';
 
 function DropdownPanel({ children }) {
     return (
@@ -35,8 +34,7 @@ function DropdownPanel({ children }) {
     );
 }
 
-export default function TopBar({ projectId }) {
-    const navigate = useNavigate();
+export default function TopBar({ projectId, session, onBack, onToggleSidebar }) {
     const { state, dispatch } = useSchema();
     const { theme, toggleTheme } = useTheme();
     const { dbDialect, setDbDialect } = useSettings();
@@ -46,12 +44,39 @@ export default function TopBar({ projectId }) {
     const [showRevEng, setShowRevEng] = useState(false);
     const [showValidationModal, setShowValidationModal] = useState(false);
     const [showDiffModal, setShowDiffModal] = useState(false);
-    const [saving, setSaving] = useState(false);
-    const [showLayoutMenu, setShowLayoutMenu] = useState(false);
-    const [showDbMenu, setShowDbMenu] = useState(false);
-    const [showAddMenu, setShowAddMenu] = useState(false);
-    const [showExportMenu, setShowExportMenu] = useState(false);
+    const [menu, setMenu] = useState(null);
     const [toast, setToast] = useState(null);
+    const [renameOpen, setRenameOpen] = useState(false);
+    const [nameInput, setNameInput] = useState('');
+    const menuRef = useRef(null);
+    const fileInputRef = useRef(null);
+
+    useEffect(() => {
+        const close = event => {
+            if (event.type === 'keydown' && event.key !== 'Escape') return;
+            if (event.type === 'keydown' || !menuRef.current?.contains(event.target)) setMenu(null);
+        };
+        document.addEventListener('pointerdown', close);
+        document.addEventListener('keydown', close);
+        return () => {
+            document.removeEventListener('pointerdown', close);
+            document.removeEventListener('keydown', close);
+        };
+    }, []);
+
+    const importBackup = async event => {
+        const file = event.target.files[0];
+        event.target.value = '';
+        if (!file) return;
+        try {
+            const imported = parseProjectFile(await file.text());
+            if (state.tables.length && !window.confirm('导入备份将替换当前画布，可以通过撤销恢复。继续导入？')) return;
+            dispatch({ type: 'IMPORT_SCHEMA', payload: imported.schema });
+            setToast({ message: '项目备份已导入，可以继续编辑或撤销', type: 'success' });
+        } catch (error) {
+            setToast({ message: error.message, type: 'error' });
+        }
+    };
 
     const validation = useMemo(() => validateSchema(state), [state]);
     const stats = useMemo(() => {
@@ -65,37 +90,11 @@ export default function TopBar({ projectId }) {
 
     const handleLayout = (direction) => {
         dispatch({ type: 'AUTO_LAYOUT', payload: direction });
-        setShowLayoutMenu(false);
+        setMenu(null);
     };
 
     const handleRestoreVersion = (schema) => {
         dispatch({ type: 'IMPORT_SCHEMA', payload: schema });
-    };
-
-    const saveProject = async () => {
-        setSaving(true);
-        try {
-            if (!validation.summary.isValid) {
-                setShowValidationModal(true);
-                throw new Error(`发现 ${validation.summary.errorCount} 个结构错误，请先修复`);
-            }
-
-            await apiPut(`/api/projects/${projectId}`, { schema: state });
-
-            const currentUser = getStoredUser();
-            await apiPost(`/api/projects/${projectId}/versions`, {
-                schema: state,
-                user: currentUser?.username || 'Unknown',
-                description: '',
-            });
-
-            setToast({ message: '保存成功！已生成新版本。', type: 'success' });
-        } catch (error) {
-            console.error('Save error:', error);
-            setToast({ message: '保存失败: ' + error.message, type: 'error' });
-        } finally {
-            setSaving(false);
-        }
     };
 
     const handleExport = async (format = 'png') => {
@@ -160,19 +159,15 @@ export default function TopBar({ projectId }) {
 
     return (
         <>
-            <div className="topbar-shell">
+            <div className="topbar-shell" ref={menuRef}>
                 <div className="topbar-main glass">
                     <div className="topbar-row">
                         <div className="topbar-brand">
-                            <div onClick={() => navigate('/dashboard')} title="返回仪表盘">
-                                <Logo size={28} showText={true} />
-                            </div>
+                            <button className="brand-back" onClick={onBack} title="返回工作台" aria-label="返回工作台"><Logo size={26} showText={false} /></button>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.28rem' }}>
-                                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>
-                                    Schema Control Deck
-                                </div>
+                                <button className="project-title" title={getStoredUser()?.id === session.project.user_id ? '重命名项目' : session.project.name} onClick={() => { if (getStoredUser()?.id === session.project.user_id) { setNameInput(session.project.name); setRenameOpen(true); } }}>{session.project.name}</button>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flexWrap: 'wrap' }}>
-                                    <span className="project-badge">项目 #{projectId}</span>
+                                    <span className={`save-status ${session.status === 'error' || session.status === 'conflict' ? 'is-error' : ''}`} role="status">{session.recovery ? '等待恢复草稿' : session.status === 'saving' ? '正在保存…' : session.status === 'conflict' ? '保存冲突' : session.status === 'error' ? (session.draftError ? '保存失败' : '保存失败 · 草稿已保留') : session.dirty ? (session.autoSave ? '等待自动保存…' : '有未保存的修改') : '✓ 已保存'}{!session.dirty && session.project.updated_at ? ` · ${new Date(session.project.updated_at.replace(' ', 'T') + 'Z').toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : ''}</span>
                                     <span className="project-badge" style={{
                                         color: validation.summary.isValid ? 'var(--accent-success)' : 'var(--accent-danger)',
                                         borderColor: validation.summary.isValid ? 'rgba(116, 221, 152, 0.24)' : 'rgba(255, 122, 112, 0.24)',
@@ -185,6 +180,8 @@ export default function TopBar({ projectId }) {
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                            <button className="btn" onClick={onToggleSidebar} title="显示或隐藏数据表导航">☰ 导航</button>
+                            <label className="autosave-toggle"><input type="checkbox" checked={session.autoSave} onChange={event => session.setAutoSave(event.target.checked)} />自动保存</label>
                             <button className="btn" onClick={toggleTheme} title={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}>
                                 {theme === 'dark' ? '☀️ 亮色' : '🌙 暗色'}
                             </button>
@@ -195,10 +192,10 @@ export default function TopBar({ projectId }) {
                                 🩺 体检
                             </button>
                             <button className="btn" onClick={() => setShowDiffModal(true)}>
-                                Δ Diff
+                                Δ 变更对比
                             </button>
-                            <button className="btn btn-primary" onClick={saveProject} disabled={saving}>
-                                {saving ? '保存中...' : '保存项目'}
+                            <button className="btn btn-primary" onClick={() => session.save(true)} disabled={session.status === 'saving' || !!session.recovery || session.status === 'conflict'} title="保存当前设计并创建历史版本（Ctrl+S）">
+                                {session.status === 'saving' ? '保存中…' : '保存版本'}
                             </button>
                         </div>
                     </div>
@@ -224,15 +221,15 @@ export default function TopBar({ projectId }) {
                             </div>
 
                             <div className="topbar-group" style={{ position: 'relative' }}>
-                                <button className="btn" onClick={() => setShowAddMenu(prev => !prev)}>
+                                <button className="btn" onClick={() => setMenu(menu === 'add' ? null : 'add')}>
                                     ➕ 新增
                                 </button>
-                                {showAddMenu && (
+                                {menu === 'add' && (
                                     <DropdownPanel>
-                                        <button className="btn" onClick={() => { dispatch({ type: 'ADD_TABLE' }); setShowAddMenu(false); }} style={{ justifyContent: 'flex-start' }}>
+                                        <button className="btn" onClick={() => { dispatch({ type: 'ADD_TABLE' }); setMenu(null); }} style={{ justifyContent: 'flex-start' }}>
                                             + 新建表
                                         </button>
-                                        <button className="btn" onClick={() => { dispatch({ type: 'ADD_BOOKMARK' }); setShowAddMenu(false); }} style={{ justifyContent: 'flex-start' }}>
+                                        <button className="btn" onClick={() => { dispatch({ type: 'ADD_BOOKMARK' }); setMenu(null); }} style={{ justifyContent: 'flex-start' }}>
                                             + 新建书签
                                         </button>
                                     </DropdownPanel>
@@ -240,10 +237,10 @@ export default function TopBar({ projectId }) {
                             </div>
 
                             <div className="topbar-group" style={{ position: 'relative' }}>
-                                <button className="btn" onClick={() => setShowLayoutMenu(prev => !prev)}>
+                                <button className="btn" onClick={() => setMenu(menu === 'layout' ? null : 'layout')}>
                                     🧩 布局
                                 </button>
-                                {showLayoutMenu && (
+                                {menu === 'layout' && (
                                     <DropdownPanel>
                                         <button className="btn" onClick={() => handleLayout('LR')} style={{ justifyContent: 'flex-start' }}>➡️ 从左到右</button>
                                         <button className="btn" onClick={() => handleLayout('TB')} style={{ justifyContent: 'flex-start' }}>⬇️ 从上到下</button>
@@ -254,10 +251,10 @@ export default function TopBar({ projectId }) {
                             </div>
 
                             <div className="topbar-group" style={{ position: 'relative' }}>
-                                <button className="btn" onClick={() => setShowDbMenu(prev => !prev)}>
+                                <button className="btn" onClick={() => setMenu(menu === 'db' ? null : 'db')}>
                                     🗄️ 方言
                                 </button>
-                                {showDbMenu && (
+                                {menu === 'db' && (
                                     <DropdownPanel>
                                         {['mysql', 'postgresql', 'oracle'].map((dialect) => (
                                             <button
@@ -265,7 +262,7 @@ export default function TopBar({ projectId }) {
                                                 className="btn"
                                                 onClick={() => {
                                                     setDbDialect(dialect);
-                                                    setShowDbMenu(false);
+                                                    setMenu(null);
                                                 }}
                                                 style={{ justifyContent: 'space-between' }}
                                             >
@@ -279,7 +276,7 @@ export default function TopBar({ projectId }) {
 
                             <div className="topbar-group">
                                 <button className="btn" onClick={() => setShowRevEng(true)}>
-                                    📥 逆向
+                                    📥 数据库导入
                                 </button>
                                 <button
                                     className="btn"
@@ -296,18 +293,20 @@ export default function TopBar({ projectId }) {
                             </div>
 
                             <div className="topbar-group" style={{ position: 'relative' }}>
-                                <button className="btn" onClick={() => setShowExportMenu(prev => !prev)}>
+                                <button className="btn" onClick={() => setMenu(menu === 'export' ? null : 'export')}>
                                     📤 导出
                                 </button>
-                                {showExportMenu && (
+                                {menu === 'export' && (
                                     <DropdownPanel>
-                                        <button className="btn" onClick={() => { setShowExportModal(true); setShowExportMenu(false); }} style={{ justifyContent: 'flex-start' }}>
+                                        <button className="btn" onClick={() => { downloadProject(session.project.name, state); setMenu(null); }} style={{ justifyContent: 'flex-start' }}>JSON 项目备份</button>
+                                        <button className="btn" onClick={() => { fileInputRef.current.click(); setMenu(null); }} style={{ justifyContent: 'flex-start' }}>导入 JSON 备份</button>
+                                        <button className="btn" onClick={() => { setShowExportModal(true); setMenu(null); }} style={{ justifyContent: 'flex-start' }}>
                                             SQL 导出
                                         </button>
-                                        <button className="btn" onClick={() => { handleExport('png'); setShowExportMenu(false); }} style={{ justifyContent: 'flex-start' }}>
+                                        <button className="btn" onClick={() => { handleExport('png'); setMenu(null); }} style={{ justifyContent: 'flex-start' }}>
                                             PNG 快照
                                         </button>
-                                        <button className="btn" onClick={() => { handleExport('svg'); setShowExportMenu(false); }} style={{ justifyContent: 'flex-start' }}>
+                                        <button className="btn" onClick={() => { handleExport('svg'); setMenu(null); }} style={{ justifyContent: 'flex-start' }}>
                                             SVG 矢量图
                                         </button>
                                     </DropdownPanel>
@@ -318,6 +317,8 @@ export default function TopBar({ projectId }) {
                 </div>
             </div>
 
+            <input type="file" ref={fileInputRef} accept=".json,application/json" onChange={importBackup} hidden />
+            {renameOpen && <div className="modal-overlay" onClick={() => setRenameOpen(false)}><form className="modal-content glass compact-modal" onClick={event => event.stopPropagation()} onSubmit={async event => { event.preventDefault(); if (nameInput.trim() && await session.save(false, nameInput.trim())) setRenameOpen(false); }}><h2>重命名项目</h2><label className="form-label">项目名称<input className="ui-input" aria-label="项目名称" value={nameInput} onChange={event => setNameInput(event.target.value)} autoFocus required maxLength={100} /></label><div className="session-actions"><button className="btn" type="button" onClick={() => setRenameOpen(false)}>取消</button><button className="btn btn-primary" disabled={session.status === 'saving' || !nameInput.trim()}>保存名称</button></div></form></div>}
             {showAI && <AIModal onClose={() => setShowAI(false)} />}
             {showHistory && (
                 <VersionHistoryModal
@@ -347,11 +348,11 @@ export default function TopBar({ projectId }) {
                 />
             )}
 
-            {toast && (
+            {(toast || session.notice) && (
                 <Toast
-                    message={toast.message}
-                    type={toast.type}
-                    onClose={() => setToast(null)}
+                    message={toast?.message || session.notice}
+                    type={toast?.type || 'success'}
+                    onClose={() => { setToast(null); session.setNotice(''); }}
                 />
             )}
         </>

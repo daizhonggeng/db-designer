@@ -12,6 +12,8 @@
 
 ## 技术栈
 
+首次使用与这一版的体验改动见 [体验优化说明](docs/体验优化说明.md)，包含示例起步、自动保存、草稿恢复和备份操作。
+
 - 前端：React 19、Vite
 - 后端：Node.js、Express、SQLite（Node.js 内置 `node:sqlite`）
 - AI：兼容 OpenAI 格式的聊天补全接口，默认示例为 DashScope

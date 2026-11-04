@@ -1131,3 +1131,41 @@ button {
         padding: 1rem;
     }
 }
+
+
+/* 项目起步、保存反馈与画布导航 */
+.project-loading { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; color: var(--text-secondary); }
+.session-banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: .65rem 1rem 0; padding: .8rem 1rem; border: 1px solid var(--accent-primary); border-radius: 14px; background: var(--bg-panel); }
+.session-banner strong, .session-banner span { display: block; }
+.session-banner span { margin-top: .3rem; color: var(--text-secondary); font-size: .84rem; }
+.session-banner.is-error { border-color: var(--accent-danger); }
+.session-actions { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.brand-back { border: 0; padding: .45rem; background: transparent; cursor: pointer; border-radius: 12px; }
+.project-title { border: 0; padding: 0; background: none; color: var(--text-primary); font: inherit; font-size: 1.15rem; font-weight: 750; cursor: pointer; text-align: left; max-width: 340px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.save-status { font-size: .77rem; color: var(--accent-success); }
+.save-status.is-error, .inline-error { color: var(--accent-danger); }
+.autosave-toggle { display: inline-flex; align-items: center; gap: .4rem; color: var(--text-secondary); font-size: .83rem; cursor: pointer; }
+.autosave-toggle input { accent-color: var(--accent-primary); }
+.compact-modal { width: min(480px, 94vw); display: grid; gap: 1rem; border-radius: 20px; }
+.form-label { display: grid; gap: .55rem; margin-top: 1rem; font-size: .85rem; color: var(--text-secondary); }
+.welcome-panel { padding: 2rem; border-radius: 24px; display: grid; gap: 1.4rem; }
+.welcome-panel h2 { margin: .7rem 0; font-size: 1.5rem; }
+.welcome-panel p { color: var(--text-secondary); line-height: 1.8; }
+.starter-actions, .template-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+.starter-card { display: flex; flex-direction: column; align-items: flex-start; gap: .6rem; padding: 1.2rem; border: 1px solid var(--glass-border); border-radius: 16px; background: rgba(255,255,255,.025); color: var(--text-primary); cursor: pointer; text-align: left; font: inherit; }
+.starter-card strong { font-size: .98rem; }
+.starter-card span { color: var(--text-secondary); font-size: .82rem; line-height: 1.6; }
+.starter-card:hover, .starter-card.is-selected { border-color: var(--accent-primary); background: rgba(61,210,190,.07); }
+.template-choices { margin: 1rem 0; }
+.template-choices .starter-card { padding: .8rem; }
+.canvas-empty { position: absolute; inset: 0; z-index: 70; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2rem; pointer-events: none; }
+.canvas-empty > * { pointer-events: auto; }
+.canvas-empty h2 { margin: 1rem 0 .7rem; font-size: 1.4rem; }
+.canvas-empty p { color: var(--text-secondary); line-height: 1.9; margin-bottom: 1.4rem; font-size: .9rem; }
+.empty-icon { font-size: 2.5rem; color: var(--accent-primary); }
+.sidebar-shell { display: flex; flex-direction: column; flex-shrink: 0; min-height: 0; }
+.canvas { min-width: 0; }
+.table-column { min-width: 0; }
+button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 3px; }
+@media (max-width: 900px) { .session-banner { align-items: flex-start; flex-direction: column; } .topbar-main { padding: .8rem; } .topbar-groups { gap: .4rem; } }
+@media (max-width: 600px) { .starter-actions, .template-choices { grid-template-columns: 1fr; } .welcome-panel { padding: 1.2rem; } .project-title { max-width: 220px; } .canvas-empty { padding: 1rem; } .canvas-empty h2 { font-size: 1.1rem; } }

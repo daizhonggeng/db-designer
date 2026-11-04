@@ -39,15 +39,21 @@ export async function apiRequest(path, options = {}) {
         requestHeaders.set('Content-Type', 'application/json');
     }
 
-    const response = await fetch(buildApiUrl(path), {
-        ...restOptions,
-        headers: requestHeaders,
-        body: body === undefined
-            ? undefined
-            : body instanceof FormData
-                ? body
-                : JSON.stringify(body),
-    });
+    let response;
+    try {
+        response = await fetch(buildApiUrl(path), {
+            ...restOptions,
+            headers: requestHeaders,
+            body: body === undefined
+                ? undefined
+                : body instanceof FormData
+                    ? body
+                    : JSON.stringify(body),
+        });
+    } catch (failure) {
+        if (failure.name === 'AbortError') throw failure;
+        throw new Error('无法连接到服务，请检查网络或本地后端是否正在运行');
+    }
 
     const payload = await parseResponse(response);
 

@@ -131,6 +131,35 @@ test('SQLite API persists projects, versions and collaboration', async t => {
         assert.equal(versions[0].description, '版本备注');
     });
 
+    await t.test('atomic save detects conflicts and excludes editor history', async () => {
+        const before = await request('GET', `/api/projects/${project.id}`, undefined, owner);
+        const saved = await request('PUT', `/api/projects/${project.id}`, {
+            schema: { ...schema, past: [{ tables: [] }], clipboard: { name: 'private copy' } },
+            expectedRevision: before.revision,
+            createVersion: true,
+            description: '手动保存',
+        }, owner);
+        assert.equal(saved.revision, before.revision + 1);
+        assert.deepEqual(saved.schema_data, schema);
+        const versions = await request('GET', `/api/projects/${project.id}/versions`, undefined, owner);
+        assert.equal(versions.length, 2);
+        assert.equal(versions[0].description, '手动保存');
+        await request('PUT', `/api/projects/${project.id}`, {
+            schema: { tables: [], relationships: [], bookmarks: [] },
+            expectedRevision: before.revision,
+            createVersion: true,
+        }, owner, 409);
+        const unchanged = await request('GET', `/api/projects/${project.id}`, undefined, owner);
+        assert.equal(unchanged.revision, saved.revision);
+        assert.deepEqual(unchanged.schema_data, schema);
+        const afterVersions = await request('GET', `/api/projects/${project.id}/versions`, undefined, owner);
+        assert.equal(afterVersions.length, 2);
+        const renamed = await request('PUT', `/api/projects/${project.id}`, { name: '订单设计', expectedRevision: saved.revision }, owner);
+        assert.equal(renamed.name, '订单设计');
+        assert.deepEqual(renamed.schema_data, schema);
+        await request('PUT', `/api/projects/${project.id}`, { schema: [] }, owner, 400);
+    });
+
     await t.test('membership approval and access checks', async () => {
         await request('GET', `/api/projects/${project.id}`, undefined, member, 403);
         const available = await request('GET', '/api/projects/available', undefined, member);
@@ -157,7 +186,7 @@ test('SQLite API persists projects, versions and collaboration', async t => {
         const loaded = await request('GET', `/api/projects/${project.id}`, undefined, owner);
         assert.deepEqual(loaded.schema_data, schema);
         const versions = await request('GET', `/api/projects/${project.id}/versions`, undefined, owner);
-        assert.equal(versions[0].id, version.id);
+        assert.ok(versions.some(item => item.id === version.id));
     });
 
     await t.test('deleting a project cascades to members, requests and versions', async () => {

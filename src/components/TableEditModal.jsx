@@ -1,111 +1,34 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { v4 as uuidv4 } from 'uuid';
+import { normalizeColumn } from '../utils/schemaModel';
+import { normalizeTableForEditor, validateEditedTable, tableSavePayload } from '../utils/tableEditor';
 
 const TABS = ['columns', 'indexes', 'constraints'];
 const INDEX_TYPES = ['BTREE', 'HASH', 'GIN', 'GIST', 'FULLTEXT', 'OTHER'];
 const CONSTRAINT_TYPES = ['PRIMARY_KEY', 'UNIQUE', 'CHECK'];
-
-const normalizeColumn = (column) => {
-    const isPk = Boolean(column?.isPk);
-    return {
-        id: column?.id || uuidv4(),
-        name: column?.name || 'new_column',
-        type: column?.type || 'VARCHAR(255)',
-        isPk,
-        nullable: typeof column?.nullable === 'boolean' ? column.nullable : !isPk,
-        defaultValue: typeof column?.defaultValue === 'string' ? column.defaultValue : '',
-        isUnique: typeof column?.isUnique === 'boolean' ? column.isUnique : isPk,
-        isAutoIncrement: Boolean(column?.isAutoIncrement),
-        comment: column?.comment || '',
-    };
-};
-
-const normalizeTable = (table) => {
-    const columns = Array.isArray(table?.columns) ? table.columns.map(normalizeColumn) : [];
-    const columnIds = new Set(columns.map((column) => column.id));
-    return {
-        ...table,
-        name: table?.name || 'new_table',
-        comment: table?.comment || '',
-        columns,
-        indexes: (table?.indexes || []).map((index) => ({
-            id: index?.id || uuidv4(),
-            name: index?.name || 'idx_name',
-            type: INDEX_TYPES.includes(index?.type) ? index.type : 'BTREE',
-            isUnique: Boolean(index?.isUnique),
-            columns: Array.isArray(index?.columns) ? index.columns.filter((id) => columnIds.has(id)) : [],
-            comment: index?.comment || '',
-        })),
-        constraints: (table?.constraints || []).map((constraint) => ({
-            id: constraint?.id || uuidv4(),
-            type: CONSTRAINT_TYPES.includes(constraint?.type) ? constraint.type : 'UNIQUE',
-            name: constraint?.name || 'cons_name',
-            columns: Array.isArray(constraint?.columns) ? constraint.columns.filter((id) => columnIds.has(id)) : [],
-            expression: constraint?.expression || '',
-        })),
-    };
-};
-
-const validateTable = (table) => {
-    if (!table.name.trim()) return '表名不能为空';
-    if (!table.columns.length) return '至少需要一个字段';
-    const names = new Set();
-    for (const column of table.columns) {
-        const name = column.name.trim().toLowerCase();
-        if (!name) return '字段名不能为空';
-        if (!column.type.trim()) return `字段 ${column.name} 缺少类型`;
-        if (names.has(name)) return `字段名重复: ${column.name}`;
-        names.add(name);
-    }
-    for (const index of table.indexes) {
-        if (!index.name.trim()) return '索引名称不能为空';
-        if (!index.columns.length) return `索引 ${index.name || '(未命名)'} 至少选择一个字段`;
-    }
-    for (const constraint of table.constraints) {
-        if (!constraint.name.trim()) return '约束名称不能为空';
-        if (constraint.type === 'CHECK' && !constraint.expression.trim()) return `检查约束 ${constraint.name || '(未命名)'} 需要表达式`;
-        if (constraint.type !== 'CHECK' && !constraint.columns.length) return `约束 ${constraint.name || '(未命名)'} 至少选择一个字段`;
-    }
-    return '';
-};
-
-const toSavePayload = (table) => {
-    const columns = table.columns.map((column) => ({
-        ...column,
-        name: column.name.trim(),
-        type: column.type.trim(),
-        defaultValue: (column.defaultValue || '').trim(),
-        comment: (column.comment || '').trim(),
-    }));
-    const pkColumns = columns.filter((column) => column.isPk).map((column) => column.id);
-    const autoPk = pkColumns.length ? [{ id: uuidv4(), type: 'PRIMARY_KEY', name: `pk_${table.name.trim() || 'table'}`, columns: pkColumns, expression: '' }] : [];
-    return {
-        ...table,
-        name: table.name.trim(),
-        comment: table.comment.trim(),
-        columns,
-        indexes: table.indexes.map((index) => ({ ...index, name: index.name.trim(), comment: index.comment.trim() })),
-        constraints: [...autoPk, ...table.constraints.filter((constraint) => constraint.type !== 'PRIMARY_KEY')].map((constraint) => ({
-            ...constraint,
-            name: constraint.name.trim(),
-            expression: (constraint.expression || '').trim(),
-        })),
-    };
-};
 
 function Toggle({ checked, label, onChange }) {
     return <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', padding: '0.45rem 0.72rem', borderRadius: '999px', border: checked ? '1px solid rgba(90,209,195,0.26)' : '1px solid var(--glass-border)', background: checked ? 'rgba(90,209,195,0.12)' : 'rgba(255,255,255,0.03)', color: checked ? 'var(--text-primary)' : 'var(--text-secondary)', fontSize: '0.84rem', cursor: 'pointer' }}><input type="checkbox" checked={checked} onChange={onChange} />{label}</label>;
 }
 
 export default function TableEditModal({ table, onClose, onSave }) {
-    const [editedTable, setEditedTable] = useState(() => normalizeTable(table));
+    const [editedTable, setEditedTable] = useState(() => normalizeTableForEditor(table));
     const [activeTab, setActiveTab] = useState('columns');
     const [error, setError] = useState('');
 
     const updateColumn = (columnId, patch) => setEditedTable((prev) => ({ ...prev, columns: prev.columns.map((column) => column.id === columnId ? { ...column, ...patch } : column) }));
     const removeColumn = (columnId) => setEditedTable((prev) => ({ ...prev, columns: prev.columns.filter((column) => column.id !== columnId), indexes: prev.indexes.map((index) => ({ ...index, columns: index.columns.filter((id) => id !== columnId) })), constraints: prev.constraints.map((constraint) => ({ ...constraint, columns: constraint.columns.filter((id) => id !== columnId) })) }));
-    const save = () => { const nextError = validateTable(editedTable); if (nextError) return setError(nextError); onSave(toSavePayload(editedTable)); onClose(); };
+    const save = () => { const nextError = validateEditedTable(editedTable); if (nextError) return setError(nextError); onSave(tableSavePayload(editedTable)); onClose(); };
+    const requestClose = () => {
+        if (JSON.stringify(editedTable) !== JSON.stringify(normalizeTableForEditor(table)) && !window.confirm('放弃还没有应用到画布的表结构修改？')) return;
+        onClose();
+    };
+    useEffect(() => {
+        const close = event => { if (event.key === 'Escape') requestClose(); };
+        document.addEventListener('keydown', close);
+        return () => document.removeEventListener('keydown', close);
+    });
     const stats = [
         ['字段', editedTable.columns.length, 'var(--accent-primary)'],
         ['主键列', editedTable.columns.filter((column) => column.isPk).length, 'var(--accent-secondary)'],
@@ -114,8 +37,8 @@ export default function TableEditModal({ table, onClose, onSave }) {
     ];
 
     return ReactDOM.createPortal(
-        <div className="modal-overlay" onClick={onClose} style={{ zIndex: 9999, padding: '1rem' }}>
-            <div className="modal-content glass" onClick={(event) => event.stopPropagation()} style={{ width: 'min(1180px, 96vw)', maxHeight: '92vh', padding: 0, borderRadius: '28px', background: 'linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015)), var(--bg-card)' }}>
+        <div className="modal-overlay" onClick={requestClose} style={{ zIndex: 9999, padding: '1rem' }}>
+            <div className="modal-content glass" data-table-editor onClick={(event) => event.stopPropagation()} style={{ width: 'min(1180px, 96vw)', maxHeight: '92vh', padding: 0, borderRadius: '28px', background: 'linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015)), var(--bg-card)' }}>
                 <div style={{ padding: '1.35rem 1.45rem 1.1rem', borderBottom: '1px solid var(--glass-border)', display: 'grid', gap: '1rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'flex-start' }}>
                         <div style={{ display: 'grid', gap: '0.42rem' }}>
@@ -125,7 +48,7 @@ export default function TableEditModal({ table, onClose, onSave }) {
                                 <p style={{ margin: '0.45rem 0 0', color: 'var(--text-secondary)', lineHeight: 1.5 }}>统一维护字段、索引和约束，减少画布和数据库定义之间的割裂。</p>
                             </div>
                         </div>
-                        <button className="btn" onClick={onClose}>&times;</button>
+                        <button className="btn" onClick={requestClose}>&times;</button>
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 0.95fr)', gap: '0.85rem' }}>
@@ -156,7 +79,7 @@ export default function TableEditModal({ table, onClose, onSave }) {
 
                 <div style={{ borderTop: '1px solid var(--glass-border)', padding: '0.95rem 1.45rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', background: 'rgba(255,255,255,0.02)' }}>
                     <div style={{ color: error ? 'var(--accent-danger)' : 'var(--text-secondary)', fontSize: '0.88rem' }}>{error || '保存后会同步更新当前画布中的表结构、索引与约束。'}</div>
-                    <div style={{ display: 'flex', gap: '0.65rem' }}><button type="button" className="btn" onClick={onClose}>取消</button><button type="button" className="btn btn-primary" onClick={save}>保存更改</button></div>
+                    <div style={{ display: 'flex', gap: '0.65rem' }}><button type="button" className="btn" onClick={requestClose}>取消</button><button type="button" className="btn btn-primary" onClick={save}>保存更改</button></div>
                 </div>
             </div>
         </div>,

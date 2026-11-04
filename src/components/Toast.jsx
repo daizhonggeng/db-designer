@@ -16,6 +16,7 @@ export default function Toast({ message, type = 'success', onClose, duration = 3
 
     return (
         <div
+            role={type === 'error' ? 'alert' : 'status'}
             style={{
                 position: 'fixed',
                 top: '80px',

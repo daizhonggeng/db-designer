@@ -82,6 +82,8 @@ export default function AuthPage({ type }) {
                                 type="text"
                                 className="auth-input"
                                 placeholder="用户名"
+                                aria-label="用户名"
+                                autoComplete="username"
                                 value={formData.username}
                                 onChange={(event) => setFormData({ ...formData, username: event.target.value })}
                                 required
@@ -93,6 +95,9 @@ export default function AuthPage({ type }) {
                                 type="password"
                                 className="auth-input"
                                 placeholder="密码"
+                                aria-label={type === 'register' ? '密码（至少 6 位）' : '密码'}
+                                autoComplete={type === 'register' ? 'new-password' : 'current-password'}
+                                minLength={type === 'register' ? 6 : undefined}
                                 value={formData.password}
                                 onChange={(event) => setFormData({ ...formData, password: event.target.value })}
                                 required
@@ -121,7 +126,7 @@ export default function AuthPage({ type }) {
                                     {type === 'login' ? '去注册' : '去登录'}
                                 </Link>
                             </p>
-                            {type === 'login' && <span className="project-badge">demo / demo123</span>}
+                            <span className="project-badge">{type === 'login' ? '首次使用请先注册' : '密码至少 6 位'}</span>
                         </div>
                     </div>
                 </section>

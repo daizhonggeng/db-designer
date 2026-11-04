@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiDelete, apiGet, apiPost, apiPut } from '../services/api';
 import { clearStoredUser, getStoredUser } from '../utils/storage';
 import Logo from '../components/Logo';
+import Toast from '../components/Toast';
+import { createOrderExample, mostRecentProject, parseProjectFile } from '../utils/projectData';
 
 function formatDateLabel(value) {
     return new Date(value).toLocaleDateString('zh-CN', {
@@ -13,7 +15,7 @@ function formatDateLabel(value) {
 
 function getProjectCardTone(type) {
     if (type === 'my') {
-        return { badge: '主控', note: '可管理', accent: 'var(--accent-primary)' };
+        return { badge: '我创建的', note: '可管理', accent: 'var(--accent-primary)' };
     }
     if (type === 'collaborated') {
         return { badge: '协作', note: '成员视角', accent: 'var(--accent-tertiary)' };
@@ -33,43 +35,51 @@ export default function Dashboard() {
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [newProjectName, setNewProjectName] = useState('');
     const [createLoading, setCreateLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
+    const [createError, setCreateError] = useState('');
+    const [template, setTemplate] = useState('blank');
+    const [imported, setImported] = useState(null);
+    const [toast, setToast] = useState(null);
+    const importRef = useRef(null);
 
-    useEffect(() => {
-        const currentUser = getStoredUser();
-        if (!currentUser) {
-            navigate('/login');
-            return;
-        }
-        setUser(currentUser);
-        loadProjects(currentUser.id);
-    }, [navigate]);
-
-    const loadProjects = async (userId) => {
+    const loadProjects = useCallback(async () => {
+        setLoading(true);
+        setLoadError('');
         try {
             const [my, collab, avail] = await Promise.all([
-                apiGet(`/api/projects/my-created?userId=${userId}`),
-                apiGet(`/api/projects/my-collaborated?userId=${userId}`),
-                apiGet(`/api/projects/available?userId=${userId}`),
+                apiGet('/api/projects/my-created'),
+                apiGet('/api/projects/my-collaborated'),
+                apiGet('/api/projects/available'),
             ]);
             setMyProjects(my);
             setCollaboratedProjects(collab);
             setAvailableProjects(avail);
         } catch (err) {
-            console.error('Failed to load projects:', err);
+            setLoadError(err.message || '无法加载项目，请检查后端服务');
+        } finally {
+            setLoading(false);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        const currentUser = getStoredUser();
+        if (!currentUser) { navigate('/login'); return; }
+        setUser(currentUser);
+        loadProjects();
+    }, [navigate, loadProjects]);
 
     const summaryStats = useMemo(() => {
-        const totalProjects = myProjects.length + collaboratedProjects.length + availableProjects.length;
+        const totalProjects = myProjects.length + collaboratedProjects.length;
         const pendingRequests = myProjects.reduce((total, project) => total + Number(project.pending_requests || 0), 0);
 
         return [
-            { label: '项目总数', value: totalProjects, accent: 'var(--accent-primary)' },
+            { label: '我的项目', value: totalProjects, accent: 'var(--accent-primary)' },
             { label: '我创建的', value: myProjects.length, accent: 'var(--accent-tertiary)' },
             { label: '协作中', value: collaboratedProjects.length, accent: 'var(--accent-success)' },
             { label: '待处理申请', value: pendingRequests, accent: 'var(--accent-secondary)' },
         ];
-    }, [availableProjects.length, collaboratedProjects.length, myProjects]);
+    }, [collaboratedProjects.length, myProjects]);
 
     const filteredSections = useMemo(() => {
         const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -87,29 +97,44 @@ export default function Dashboard() {
         };
     }, [availableProjects, collaboratedProjects, myProjects, searchTerm]);
 
-    const recentProjectId = useMemo(() => {
-        const allProjects = [...myProjects, ...collaboratedProjects, ...availableProjects];
-        if (allProjects.length === 0) {
-            return null;
-        }
-        return [...allProjects].sort((left, right) => new Date(right.created_at) - new Date(left.created_at))[0]?.id || null;
-    }, [availableProjects, collaboratedProjects, myProjects]);
+    const recentProject = useMemo(() => {
+        const accessible = [...myProjects, ...collaboratedProjects];
+        try { return mostRecentProject(accessible, user?.id); } catch { return accessible[0] || null; }
+    }, [myProjects, collaboratedProjects, user?.id]);
 
-    const openCreateModal = () => {
-        setNewProjectName('');
+    const openCreateModal = (selected = 'blank') => {
+        setTemplate(selected);
+        setNewProjectName(selected === 'orders' ? '订单系统示例' : '');
+        setImported(null);
+        setCreateError('');
         setShowCreateModal(true);
+    };
+
+    const importProject = async event => {
+        const file = event.target.files[0];
+        event.target.value = '';
+        if (!file) return;
+        try {
+            const parsed = parseProjectFile(await file.text());
+            openCreateModal('import');
+            setImported(parsed);
+            setNewProjectName(parsed.name || file.name.replace(/\.json$/i, ''));
+        } catch (error) {
+            setToast({ message: error.message, type: 'error' });
+        }
     };
 
     const createProject = async () => {
         const name = newProjectName.trim();
         if (!name) {
-            alert('请输入项目名称');
+            setCreateError('请输入项目名称');
             return;
         }
 
         try {
             setCreateLoading(true);
-            const newProject = await apiPost('/api/projects', { name });
+            const schema = template === 'orders' ? createOrderExample() : template === 'import' ? imported.schema : undefined;
+            const newProject = await apiPost('/api/projects', { name, schema });
             if (!newProject.id) {
                 throw new Error('返回的项目数据无效');
             }
@@ -117,7 +142,7 @@ export default function Dashboard() {
             navigate(`/editor/${newProject.id}`);
         } catch (err) {
             console.error('Create project error:', err);
-            alert('创建项目失败: ' + err.message);
+            setCreateError('创建项目失败：' + err.message);
         } finally {
             setCreateLoading(false);
         }
@@ -130,21 +155,22 @@ export default function Dashboard() {
         try {
             await apiDelete(`/api/projects/${projectId}`);
             loadProjects(user.id);
-            alert('删除成功！');
+            setToast({ message: '项目已删除', type: 'success' });
         } catch (err) {
-            alert('删除失败: ' + err.message);
+            setToast({ message: '删除失败：' + err.message, type: 'error' });
         }
     };
 
     const requestJoin = async (projectId, event) => {
         event.stopPropagation();
         const message = prompt('请输入申请理由（可选）:');
+        if (message === null) return;
         try {
             await apiPost(`/api/projects/${projectId}/request`, { message });
-            alert('申请已提交！');
+            setToast({ message: '申请已提交，等待项目创建者审批', type: 'success' });
             loadProjects(user.id);
         } catch (err) {
-            alert('申请失败: ' + err.message);
+            setToast({ message: '申请失败：' + err.message, type: 'error' });
         }
     };
 
@@ -155,18 +181,18 @@ export default function Dashboard() {
             setRequests(data);
             setShowRequestsModal(projectId);
         } catch (err) {
-            alert('加载申请失败: ' + err.message);
+            setToast({ message: '加载申请失败：' + err.message, type: 'error' });
         }
     };
 
     const handleRequest = async (requestId, status) => {
         try {
             await apiPut(`/api/projects/requests/${requestId}`, { status });
-            alert(status === 'approved' ? '已批准！' : '已拒绝！');
+            setToast({ message: status === 'approved' ? '已批准申请' : '已拒绝申请', type: 'success' });
             viewRequests(showRequestsModal, { stopPropagation: () => {} });
             loadProjects(user.id);
         } catch (err) {
-            alert('操作失败: ' + err.message);
+            setToast({ message: '操作失败：' + err.message, type: 'error' });
         }
     };
 
@@ -177,8 +203,11 @@ export default function Dashboard() {
             <div
                 key={project.id}
                 className="project-card glass dashboard-card-industrial"
-                onClick={() => navigate(`/editor/${project.id}`)}
-                style={{ cursor: 'pointer' }}
+                onClick={() => type !== 'available' && navigate(`/editor/${project.id}`)}
+                role={type === 'available' ? undefined : 'button'}
+                tabIndex={type === 'available' ? undefined : 0}
+                onKeyDown={event => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); navigate(`/editor/${project.id}`); } }}
+                style={{ cursor: type === 'available' ? 'default' : 'pointer' }}
             >
                 <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'flex-start' }}>
                     <div style={{ display: 'grid', gap: '0.45rem' }}>
@@ -213,11 +242,11 @@ export default function Dashboard() {
                     <div>
                         <h3 className="panel-heading" style={{ fontSize: '1.3rem', lineHeight: 1.05, marginBottom: '0.55rem' }}>{project.name}</h3>
                         <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                            {type === 'my' ? '你拥有完整控制权，可以继续保存、对比和审批协作申请。' : type === 'collaborated' ? '继续参与当前项目的结构设计与迭代。' : '浏览共享项目并发起加入申请。'}
+                            {type === 'available' ? '申请通过后，即可参与这个项目的设计。' : `${project.schema_data?.tables?.length || 0} 张表 · ${project.schema_data?.relationships?.length || 0} 条关系`}
                         </p>
                     </div>
                     <div className="project-meta">
-                        <span className="project-badge">创建于 {formatDateLabel(project.created_at)}</span>
+                        <span className="project-badge">更新于 {formatDateLabel(project.updated_at || project.created_at)}</span>
                         <span className="project-badge">{tone.note}</span>
                     </div>
                 </div>
@@ -254,7 +283,7 @@ export default function Dashboard() {
                     <div className="dashboard-hero-industrial-head">
                         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
                             <Logo size={34} showText={true} />
-                            <span className="ui-kicker">Schema Control Console</span>
+                            <span className="ui-kicker">项目工作台</span>
                         </div>
                         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
                             <span className="project-badge">{user?.username}</span>
@@ -269,18 +298,20 @@ export default function Dashboard() {
                                     数据库工作台
                                 </h1>
                                 <p style={{ maxWidth: '48rem', color: 'var(--text-secondary)', lineHeight: 1.85 }}>
-                                    简洁地管理项目、协作、版本和结构设计，不做额外装饰，只保留真正有用的操作面。
+                                    从空白画布开始设计，或打开订单示例，了解表、字段和关系如何一起工作。
                                 </p>
                             </div>
 
                             <div className="dashboard-command-row">
-                                <button className="btn btn-primary" onClick={openCreateModal}>+ 新建项目</button>
-                                <button className="btn" onClick={() => recentProjectId && navigate(`/editor/${recentProjectId}`)} disabled={!recentProjectId}>打开最近编辑器</button>
+                                <button className="btn btn-primary" onClick={() => openCreateModal()}>+ 新建项目</button>
+                                <button className="btn" onClick={() => recentProject && navigate(`/editor/${recentProject.id}`)} disabled={!recentProject} title={recentProject?.name}>继续上次编辑</button>
+                                <button className="btn" onClick={() => importRef.current.click()}>导入项目备份</button>
                                 <div className="dashboard-search-shell">
                                     <input
                                         value={searchTerm}
                                         onChange={(event) => setSearchTerm(event.target.value)}
                                         placeholder="搜索项目名"
+                                        aria-label="搜索项目名"
                                         className="dashboard-search-input"
                                     />
                                 </div>
@@ -300,10 +331,18 @@ export default function Dashboard() {
                     </div>
                 </section>
 
-                {renderProjectSection('我创建的项目', '用于主导数据建模、控制版本节奏与协作入口。', filteredSections.my, 'my')}
-                {renderProjectSection('我协作的项目', '继续参与他人发起的建模任务与数据库演进。', filteredSections.collaborated, 'collaborated')}
-                {renderProjectSection('可加入的项目', '浏览团队公开项目并申请加入。', filteredSections.available, 'available')}
+                {loading ? <div className="dashboard-empty" role="status">正在加载项目…</div> : loadError ? <div className="dashboard-empty" role="alert"><p>{loadError}</p><button className="btn" onClick={loadProjects}>重新加载</button></div> : <>
+                    {!myProjects.length && !collaboratedProjects.length && !searchTerm && <section className="welcome-panel glass">
+                        <div><span className="ui-kicker">开始设计</span><h2>你的第一张关系图，从这里开始</h2><p>可以先用订单示例体验编辑、自动保存和 SQL 导出，也可以直接创建空白项目。</p></div>
+                        <div className="starter-actions"><button className="starter-card" onClick={() => openCreateModal('orders')}><strong>体验订单示例 →</strong><span>客户、订单、订单明细 · 3 张表，2 条关系</span></button><button className="starter-card" onClick={() => openCreateModal()}><strong>创建空白项目 →</strong><span>从第一张数据表开始，自由搭建结构</span></button></div>
+                    </section>}
+                    {(myProjects.length > 0 || searchTerm) && renderProjectSection('我创建的项目', '继续设计，或管理项目和协作申请。', filteredSections.my, 'my')}
+                    {collaboratedProjects.length > 0 && renderProjectSection('我协作的项目', '和团队一起完善数据库设计。', filteredSections.collaborated, 'collaborated')}
+                    {availableProjects.length > 0 && renderProjectSection('可加入的项目', '申请加入其他成员的项目。', filteredSections.available, 'available')}
+                </>}
             </div>
+            <input ref={importRef} type="file" accept=".json,application/json" onChange={importProject} hidden />
+            {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
             {showCreateModal && (
                 <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
@@ -312,12 +351,19 @@ export default function Dashboard() {
                             <div>
                                 <span className="ui-kicker">Create Project</span>
                                 <h2 className="panel-heading" style={{ fontSize: '1.24rem', margin: '0.65rem 0 0.3rem' }}>新建数据库项目</h2>
-                                <p style={{ color: 'var(--text-secondary)', lineHeight: 1.65 }}>输入项目名称后直接进入编辑器。</p>
+                                <p style={{ color: 'var(--text-secondary)', lineHeight: 1.65 }}>选择起点，输入名称，即可开始设计。</p>
                             </div>
                             <button className="btn" onClick={() => setShowCreateModal(false)}>&times;</button>
                         </div>
 
-                        <input
+                        <div className="template-choices" role="group" aria-label="选择项目起点">
+                            <button className={`starter-card ${template === 'blank' ? 'is-selected' : ''}`} onClick={() => setTemplate('blank')}><strong>空白项目</strong><span>自由搭建数据结构</span></button>
+                            <button className={`starter-card ${template === 'orders' ? 'is-selected' : ''}`} onClick={() => { setTemplate('orders'); if (!newProjectName) setNewProjectName('订单系统示例'); }}><strong>订单示例</strong><span>3 张表 · 2 条关系</span></button>
+                            {imported && <button className={`starter-card ${template === 'import' ? 'is-selected' : ''}`} onClick={() => setTemplate('import')}><strong>导入的备份</strong><span>{imported.schema.tables.length} 张表</span></button>}
+                        </div>
+                        <label className="form-label">项目名称<input
+                            aria-label="项目名称"
+                            maxLength={100}
                             value={newProjectName}
                             onChange={(event) => setNewProjectName(event.target.value)}
                             placeholder="例如：会员中心、订单平台、资产台账"
@@ -328,11 +374,12 @@ export default function Dashboard() {
                                     createProject();
                                 }
                             }}
-                        />
+                        /></label>
+                        {createError && <p role="alert" className="inline-error">{createError}</p>}
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.15rem' }}>
                             <button className="btn" onClick={() => setShowCreateModal(false)} disabled={createLoading}>取消</button>
-                            <button className="btn btn-primary" onClick={createProject} disabled={createLoading}>
+                            <button className="btn btn-primary" onClick={createProject} disabled={createLoading || !newProjectName.trim()}>
                                 {createLoading ? '创建中...' : '创建并进入'}
                             </button>
                         </div>

@@ -31,7 +31,9 @@ connection.exec(`
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
         schema_data TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(schema_data)),
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        revision INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS project_members (
@@ -67,6 +69,16 @@ connection.exec(`
     SELECT id, user_id, 'owner' FROM projects WHERE user_id IS NOT NULL
     ON CONFLICT (project_id, user_id) DO NOTHING;
 `);
+
+// 兼容已有本地 SQLite 文件，保留账号和项目。
+const projectColumns = connection.prepare('PRAGMA table_info(projects)').all();
+if (!projectColumns.some(column => column.name === 'updated_at')) {
+    connection.exec('ALTER TABLE projects ADD COLUMN updated_at TEXT');
+    connection.exec('UPDATE projects SET updated_at = created_at WHERE updated_at IS NULL');
+}
+if (!projectColumns.some(column => column.name === 'revision')) {
+    connection.exec('ALTER TABLE projects ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
+}
 
 function query(sql, params = []) {
     const statement = connection.prepare(sql);

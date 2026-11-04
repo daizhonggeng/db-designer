@@ -1,9 +1,11 @@
-import React, { useRef, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import React, { useCallback, useRef, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useSchema } from '../store/schemaStore';
 import TableNode from './TableNode';
 import BookmarkNode from './BookmarkNode';
 import ContextMenu from './ContextMenu';
+import { createOrderExample } from '../utils/projectData';
+import { fitViewport, canvasPoint } from '../utils/canvasViewport';
 
 const SNAP_SIZE = 20;
 
@@ -27,6 +29,10 @@ const Canvas = forwardRef((props, ref) => {
 
     // Selection & Hover State
     const [selectedRelId, setSelectedRelId] = useState(null);
+    const [measurements, setMeasurements] = useState({});
+    const measureTable = useCallback((id, measurement) => {
+        setMeasurements(previous => JSON.stringify(previous[id]) === JSON.stringify(measurement) ? previous : { ...previous, [id]: measurement });
+    }, []);
     const [hoveredTableId, setHoveredTableId] = useState(null);
 
     // Context Menu State
@@ -37,6 +43,21 @@ const Canvas = forwardRef((props, ref) => {
     const [pan, setPan] = useState({ x: 0, y: 0 });
     const [isPanning, setIsPanning] = useState(false);
     const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+
+    const hasFitted = useRef(false);
+    const fitView = useCallback(() => {
+        if (!containerRef.current) return;
+        const { width, height } = containerRef.current.getBoundingClientRect();
+        const viewport = fitViewport(state.tables, state.bookmarks, width, height);
+        setZoom(viewport.zoom);
+        setPan(viewport.pan);
+    }, [state.tables, state.bookmarks]);
+
+    useEffect(() => {
+        if (!state.tables.length || hasFitted.current) return;
+        const frame = requestAnimationFrame(() => { fitView(); hasFitted.current = true; });
+        return () => cancelAnimationFrame(frame);
+    }, [state.tables.length, fitView]);
 
     // Expose methods to parent
     useImperativeHandle(ref, () => ({
@@ -55,6 +76,9 @@ const Canvas = forwardRef((props, ref) => {
     // Global Keydown for Shortcuts
     useEffect(() => {
         const handleKeyDown = (e) => {
+            if (e.target.closest('input, textarea, select, [contenteditable="true"]') || document.querySelector('.modal-overlay')) return;
+            if (e.key === 'Escape') { setConnecting(null); setSelectedRelId(null); }
+            if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); fitView(); }
             // Delete
             if ((e.key === 'Delete' || e.key === 'Backspace') && selectedRelId) {
                 dispatch({ type: 'DELETE_RELATIONSHIP', payload: selectedRelId });
@@ -86,7 +110,7 @@ const Canvas = forwardRef((props, ref) => {
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [selectedRelId, hoveredTableId, dispatch]);
+    }, [selectedRelId, hoveredTableId, dispatch, fitView]);
 
     // Close context menu on click
     useEffect(() => {
@@ -113,9 +137,8 @@ const Canvas = forwardRef((props, ref) => {
     const handleMouseDown = (e) => {
         if (e.button === 2) return; // Right click handled by context menu
 
-        const canvasRect = canvasRef.current.getBoundingClientRect();
-        const mouseX = (e.clientX - canvasRect.left - pan.x) / zoom;
-        const mouseY = (e.clientY - canvasRect.top - pan.y) / zoom;
+        const canvasRect = containerRef.current.getBoundingClientRect();
+        const { x: mouseX, y: mouseY } = canvasPoint(e.clientX, e.clientY, canvasRect, pan, zoom);
 
         lastMousePosRef.current = { x: mouseX, y: mouseY };
 
@@ -181,9 +204,8 @@ const Canvas = forwardRef((props, ref) => {
             return;
         }
 
-        const canvasRect = canvasRef.current.getBoundingClientRect();
-        const rawX = (e.clientX - canvasRect.left - pan.x) / zoom;
-        const rawY = (e.clientY - canvasRect.top - pan.y) / zoom;
+        const canvasRect = containerRef.current.getBoundingClientRect();
+        const { x: rawX, y: rawY } = canvasPoint(e.clientX, e.clientY, canvasRect, pan, zoom);
         setMousePos({ x: rawX, y: rawY });
 
         if (draggingId) {
@@ -290,7 +312,7 @@ const Canvas = forwardRef((props, ref) => {
     };
 
     const onStartConnect = (tableId, colId, e) => {
-        const canvasRect = canvasRef.current.getBoundingClientRect();
+        const canvasRect = containerRef.current.getBoundingClientRect();
         setConnecting({
             tableId,
             colId,
@@ -319,8 +341,9 @@ const Canvas = forwardRef((props, ref) => {
         const table = state.tables.find(t => t.id === tableId);
         if (!table) return { x: 0, y: 0 };
         const colIndex = table.columns.findIndex(c => c.id === colId);
-        const yOffset = 45 + (colIndex * 34) + 17;
-        const width = table.width || 240;
+        const measured = measurements[tableId];
+        const yOffset = measured?.columnOffsets[colId] ?? (145 + colIndex * 44);
+        const width = measured?.width || table.width || 360;
         return { x: table.position.x, y: table.position.y + yOffset, width };
     };
 
@@ -360,6 +383,10 @@ const Canvas = forwardRef((props, ref) => {
                 />
             )}
 
+            {state.tables.length === 0 && <div className="canvas-empty" onMouseDown={event => event.stopPropagation()}>
+                <span className="empty-icon">▦</span><h2>从第一张表开始设计</h2><p>添加数据表后，双击表头编辑字段。<br />拖动字段旁的连接点，可以建立表之间的关系。</p>
+                <div className="session-actions"><button className="btn btn-primary" onClick={() => dispatch({ type: 'ADD_TABLE' })}>+ 添加第一张表</button><button className="btn" onClick={() => dispatch({ type: 'IMPORT_SCHEMA', payload: createOrderExample() })}>载入订单示例</button></div>
+            </div>}
             <div style={{
                 position: 'absolute',
                 top: '16px',
@@ -370,9 +397,9 @@ const Canvas = forwardRef((props, ref) => {
                 flexWrap: 'wrap',
                 justifyContent: 'flex-end'
             }}>
-                <span className="project-badge">拖拽表卡</span>
+                <span className="project-badge">双击表头编辑</span>
                 <span className="project-badge">右键菜单</span>
-                <span className="project-badge">Ctrl+Z / Ctrl+Y</span>
+                <span className="project-badge">F 显示全部 · Ctrl+S 保存版本</span>
             </div>
 
             {/* Zoom Controls */}
@@ -390,9 +417,10 @@ const Canvas = forwardRef((props, ref) => {
                 border: '1px solid var(--glass-border)',
                 boxShadow: 'var(--shadow-sm)'
             }}>
-                <button className="btn" onClick={zoomIn}>+</button>
+                <button className="btn" onClick={fitView} title="显示全部数据表（F）" aria-label="适应画布">⊡</button>
+                <button className="btn" onClick={zoomIn} aria-label="放大画布">+</button>
                 <button className="btn" onClick={resetZoom} style={{ fontSize: '12px' }}>{Math.round(zoom * 100)}%</button>
-                <button className="btn" onClick={zoomOut}>−</button>
+                <button className="btn" onClick={zoomOut} aria-label="缩小画布">−</button>
             </div>
 
             <div
@@ -521,6 +549,7 @@ const Canvas = forwardRef((props, ref) => {
                         >
                             <TableNode
                                 table={table}
+                                onMeasure={measureTable}
                                 onStartConnect={onStartConnect}
                                 onCompleteConnect={onCompleteConnect}
                             />

@@ -117,6 +117,14 @@ function sanitizeProject(project) {
     };
 }
 
+function projectSchema(schema) {
+    return {
+        tables: schema.tables,
+        relationships: Array.isArray(schema.relationships) ? schema.relationships : [],
+        bookmarks: Array.isArray(schema.bookmarks) ? schema.bookmarks : [],
+    };
+}
+
 function sendError(res, status, message) {
     return res.status(status).json({ error: message });
 }
@@ -364,7 +372,7 @@ app.get('/api/projects/my-created', requireAuth, async (req, res) => {
                     ) AS pending_requests
                 FROM projects p
                 WHERE p.user_id = $1
-                ORDER BY p.created_at DESC
+                ORDER BY p.updated_at DESC, p.id DESC
             `,
             [req.userId]
         );
@@ -407,7 +415,7 @@ app.get('/api/projects/available', requireAuth, async (req, res) => {
                 LEFT JOIN project_requests pr
                     ON p.id = pr.project_id AND pr.user_id = $1
                 WHERE pm.id IS NULL AND p.user_id != $1
-                ORDER BY p.created_at DESC
+                ORDER BY p.updated_at DESC, p.id DESC
             `,
             [req.userId]
         );
@@ -564,7 +572,7 @@ app.put('/api/versions/:versionId', requireAuth, requireVersionAccess(false), as
 app.get('/api/projects', requireAuth, async (req, res) => {
     try {
         const result = await db.query(
-            'SELECT * FROM projects WHERE user_id = $1 ORDER BY created_at DESC',
+            'SELECT * FROM projects WHERE user_id = $1 ORDER BY updated_at DESC, id DESC',
             [req.userId]
         );
         res.json(result.rows.map(sanitizeProject));
@@ -576,8 +584,8 @@ app.get('/api/projects', requireAuth, async (req, res) => {
 
 app.post('/api/projects', requireAuth, async (req, res) => {
     const name = req.body.name?.trim();
-    const schema = req.body.schema && typeof req.body.schema === 'object'
-        ? req.body.schema
+    const schema = req.body.schema && Array.isArray(req.body.schema.tables)
+        ? projectSchema(req.body.schema)
         : { tables: [], relationships: [], bookmarks: [] };
 
     if (!isNonEmptyString(name)) {
@@ -687,18 +695,51 @@ app.get('/api/projects/:id', requireAuth, requireProjectAccess(false), async (re
 });
 
 app.put('/api/projects/:id', requireAuth, requireProjectAccess(false), async (req, res) => {
-    const schema = req.body.schema;
+    const { schema, expectedRevision, createVersion, description } = req.body;
+    const name = typeof req.body.name === 'string' ? req.body.name.trim() : undefined;
 
-    if (!schema || typeof schema !== 'object') {
+    if (schema !== undefined && (!schema || !Array.isArray(schema.tables))) {
         return sendError(res, 400, '缺少有效的 schema 数据');
+    }
+    if (schema === undefined && name === undefined) {
+        return sendError(res, 400, '缺少要保存的内容');
+    }
+    if (name !== undefined && !name) {
+        return sendError(res, 400, '项目名称不能为空');
+    }
+    if (name !== undefined && req.projectRole !== 'owner') {
+        return sendError(res, 403, '只有项目创建者可以重命名');
+    }
+    if (expectedRevision !== undefined && (!Number.isInteger(expectedRevision) || expectedRevision < 0)) {
+        return sendError(res, 400, '无效的保存版本');
     }
 
     try {
-        const result = await db.query(
-            'UPDATE projects SET schema_data = $1 WHERE id = $2 RETURNING *',
-            [schema, req.projectId]
-        );
-        res.json(sanitizeProject(result.rows[0]));
+        const project = db.transaction(() => {
+            const current = db.query('SELECT * FROM projects WHERE id = $1', [req.projectId]).rows[0];
+            if (expectedRevision !== undefined && current.revision !== expectedRevision) {
+                return null;
+            }
+            const savedSchema = schema === undefined ? current.schema_data : projectSchema(schema);
+            const saved = db.query(
+                `UPDATE projects SET schema_data = $1, name = $2,
+                    revision = revision + 1, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $3 RETURNING *`,
+                [savedSchema, name === undefined ? current.name : name, req.projectId]
+            ).rows[0];
+            if (createVersion === true) {
+                db.query(
+                    `INSERT INTO project_versions (project_id, schema, created_by, description)
+                     VALUES ($1, $2, $3, $4)`,
+                    [req.projectId, savedSchema, req.authenticatedUser.username, typeof description === 'string' ? description : '手动保存']
+                );
+            }
+            return saved;
+        });
+        if (!project) {
+            return sendError(res, 409, '项目已在其他窗口或由协作者更新，请先备份当前内容，再载入最新版本');
+        }
+        res.json(sanitizeProject(project));
     } catch (error) {
         console.error('Save project failed:', error);
         res.status(500).json({ error: '保存项目失败' });
