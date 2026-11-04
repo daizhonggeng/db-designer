@@ -2,135 +2,61 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiPost } from '../services/api';
 import { setStoredUser } from '../utils/storage';
+import { useTheme } from '../store/themeStore';
 import Logo from '../components/Logo';
+import Icon from '../components/Icon';
+
+function DesignPreview() {
+    return <div className="auth-preview" aria-label="客户和订单的数据库关系示意图">
+        <div className="preview-bar"><span className="preview-dots"><i /><i /><i /></span><span>订单系统 / 关系图</span><span className="preview-saved"><Icon name="check" size={12} /> 已保存</span></div>
+        <div className="preview-canvas">
+            <svg className="preview-lines" viewBox="0 0 560 250" preserveAspectRatio="none"><path d="M215 115C280 115 260 140 320 140" fill="none" stroke="#8c9edb" strokeWidth="1.5" /><circle cx="215" cy="115" r="3" fill="#4263eb" /><circle cx="320" cy="140" r="3" fill="#4263eb" /></svg>
+            <div className="preview-table preview-customers"><div><Icon name="table" size={14} /><strong>customers</strong><span>客户</span></div><p><Icon name="key" size={12} /><b>id</b><code>integer</code></p><p><span /><b>name</b><code>varchar</code></p><p><span /><b>email</b><code>varchar</code></p></div>
+            <div className="preview-table preview-orders"><div><Icon name="table" size={14} /><strong>orders</strong><span>订单</span></div><p><Icon name="key" size={12} /><b>id</b><code>integer</code></p><p><Icon name="link" size={12} /><b>customer_id</b><code>integer</code></p><p><span /><b>total_amount</b><code>decimal</code></p></div>
+            <span className="preview-caption">清晰的结构，始于每一张表。</span>
+        </div>
+    </div>;
+}
 
 export default function AuthPage({ type }) {
     const navigate = useNavigate();
+    const { theme, toggleTheme } = useTheme();
     const [formData, setFormData] = useState({ username: '', password: '' });
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-
-    const handleSubmit = async (event) => {
+    const [showPassword, setShowPassword] = useState(false);
+    const register = type === 'register';
+    const handleSubmit = async event => {
         event.preventDefault();
         setError('');
         setLoading(true);
-
-        const endpoint = type === 'login' ? '/api/login' : '/api/register';
-
         try {
-            const data = await apiPost(endpoint, formData);
+            const data = await apiPost(register ? '/api/register' : '/api/login', formData);
             setStoredUser(data);
             navigate('/dashboard');
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
+        } catch (failure) { setError(failure.message); }
+        finally { setLoading(false); }
     };
 
-    return (
-        <div className="auth-container auth-industrial">
-            <div className="auth-grid"></div>
-
-            <div className="auth-console glass">
-                <section className="auth-console-copy">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                        <Logo size={34} showText={true} />
-                        <span className="ui-kicker">Industrial Console</span>
-                    </div>
-
-                    <div style={{ display: 'grid', gap: '0.8rem' }}>
-                        <h1 className="panel-heading" style={{ fontSize: '2.7rem', lineHeight: 0.96, margin: 0 }}>
-                            数据库设计控制台
-                        </h1>
-                        <p style={{ color: 'var(--text-secondary)', lineHeight: 1.8, maxWidth: '34rem' }}>
-                            保持结构设计、协作申请、版本存档和 AI 草图在同一套简洁界面内运转。
-                        </p>
-                    </div>
-
-                    <div className="auth-console-notes">
-                        <div className="auth-note-block">
-                            <strong>Versioned</strong>
-                            <span>项目保存、对比与回退在同一工作流里完成。</span>
-                        </div>
-                        <div className="auth-note-block">
-                            <strong>Canvas-first</strong>
-                            <span>从画布入手，拖拽表卡并逐步细化结构。</span>
-                        </div>
-                        <div className="auth-note-block">
-                            <strong>AI-assisted</strong>
-                            <span>可用文本或图片快速生成初始 schema。</span>
-                        </div>
-                    </div>
-                </section>
-
-                <section className="auth-card auth-card-industrial">
-                    <div style={{ display: 'grid', gap: '0.45rem', marginBottom: '1.8rem' }}>
-                        <span className="ui-kicker">{type === 'login' ? 'Sign In' : 'Register'}</span>
-                        <h2 className="panel-heading" style={{ fontSize: '1.9rem', margin: 0 }}>
-                            {type === 'login' ? '进入工作台' : '创建账号'}
-                        </h2>
-                        <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                            {type === 'login' ? '登录后继续当前项目与结构设计。' : '注册后即可开始创建数据库项目。'}
-                        </p>
-                    </div>
-
-                    <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '0.85rem' }}>
-                        <div className="auth-input-group">
-                            <span className="auth-icon">👤</span>
-                            <input
-                                type="text"
-                                className="auth-input"
-                                placeholder="用户名"
-                                aria-label="用户名"
-                                autoComplete="username"
-                                value={formData.username}
-                                onChange={(event) => setFormData({ ...formData, username: event.target.value })}
-                                required
-                            />
-                        </div>
-                        <div className="auth-input-group">
-                            <span className="auth-icon">🔒</span>
-                            <input
-                                type="password"
-                                className="auth-input"
-                                placeholder="密码"
-                                aria-label={type === 'register' ? '密码（至少 6 位）' : '密码'}
-                                autoComplete={type === 'register' ? 'new-password' : 'current-password'}
-                                minLength={type === 'register' ? 6 : undefined}
-                                value={formData.password}
-                                onChange={(event) => setFormData({ ...formData, password: event.target.value })}
-                                required
-                            />
-                        </div>
-
-                        {error && (
-                            <div className="auth-error-box">
-                                {error}
-                            </div>
-                        )}
-
-                        <button className="btn-auth" disabled={loading} style={{ opacity: loading ? 0.7 : 1 }}>
-                            {loading ? '处理中...' : (type === 'login' ? '登 录' : '注 册')}
-                        </button>
-                    </form>
-
-                    <div className="auth-subpanel">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', margin: 0 }}>
-                                {type === 'login' ? '还没有账号？' : '已有账号？'}
-                                <Link
-                                    to={type === 'login' ? '/register' : '/login'}
-                                    style={{ color: 'var(--accent-primary)', marginLeft: '0.5rem', textDecoration: 'none', fontWeight: 700 }}
-                                >
-                                    {type === 'login' ? '去注册' : '去登录'}
-                                </Link>
-                            </p>
-                            <span className="project-badge">{type === 'login' ? '首次使用请先注册' : '密码至少 6 位'}</span>
-                        </div>
-                    </div>
-                </section>
+    return <main className="auth-page">
+        <section className="auth-story">
+            <Logo size={34} />
+            <div className="auth-story-content"><span className="eyebrow">为好想法，设计好结构</span><h1>从一个想法，<br />到一张清晰的关系图<span>.</span></h1><p>把数据表、字段和关系放在一起。<br />让数据库设计，成为看得见的思考。</p><DesignPreview /><div className="auth-features"><span><Icon name="table" size={16} />可视化建模</span><span><Icon name="sparkle" size={16} />AI 辅助设计</span><span><Icon name="history" size={16} />版本可追溯</span></div></div>
+            <footer className="auth-story-footer">DB Designer <span>让数据结构，更有条理。</span></footer>
+        </section>
+        <section className="auth-form-side">
+            <button className="icon-button auth-theme" onClick={toggleTheme} title={theme === 'light' ? '切换到暗色模式' : '切换到亮色模式'}><Icon name={theme === 'light' ? 'moon' : 'sun'} /></button>
+            <div className="auth-mobile-brand"><Logo /></div>
+            <div className="auth-form-wrap"><span className="eyebrow">你的下一个设计，从这里开始</span><h2>{register ? '创建你的工作空间' : '欢迎回来'}</h2><p className="auth-subtitle">{register ? '注册账号，开始第一份数据库设计。' : '登录账号，继续你的数据库设计。'}</p>
+                <form className="auth-form" onSubmit={handleSubmit}>
+                    <label className="form-label">用户名<input className="ui-input" aria-label="用户名" placeholder="输入你的用户名" autoComplete="username" value={formData.username} onChange={event => setFormData({ ...formData, username: event.target.value })} required /></label>
+                    <label className="form-label">密码<span className="password-field"><input className="ui-input" type={showPassword ? 'text' : 'password'} aria-label={register ? '密码（至少 6 位）' : '密码'} placeholder={register ? '设置密码，至少 6 位' : '输入密码'} autoComplete={register ? 'new-password' : 'current-password'} minLength={register ? 6 : undefined} value={formData.password} onChange={event => setFormData({ ...formData, password: event.target.value })} required /><button type="button" className="icon-button" title={showPassword ? '隐藏密码' : '显示密码'} onClick={() => setShowPassword(value => !value)}><Icon name="eye" size={17} /></button></span></label>
+                    {error && <div className="auth-error-box" role="alert"><Icon name="info" size={16} />{error}</div>}
+                    <button className="btn btn-primary auth-submit" disabled={loading}>{loading ? '请稍候…' : register ? '创建账号' : '登录工作空间'}{!loading && <Icon name="arrow" size={17} />}</button>
+                </form>
+                <p className="auth-switch">{register ? '已经有账号了？' : '还没有账号？'} <Link to={register ? '/login' : '/register'}>{register ? '立即登录' : '创建账号'}<Icon name="arrow" size={14} /></Link></p>
+                <div className="auth-footnote"><Icon name="shield" size={15} />专注设计，每一步都有迹可循</div>
             </div>
-        </div>
-    );
+        </section>
+    </main>;
 }

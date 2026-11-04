@@ -5,16 +5,6 @@ export default function ColorPicker({ onSelect, currentColor }) {
     return (
         <div
             className="color-picker"
-            style={{
-                display: 'flex',
-                gap: '6px',
-                padding: '6px',
-                background: 'rgba(20, 20, 20, 0.8)',
-                borderRadius: '20px',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
-            }}
             onClick={e => e.stopPropagation()}
         >
             {DOPAMINE_COLORS.map((c) => (

@@ -1,133 +1,15 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { useSchema } from '../store/schemaStore';
+import Icon from './Icon';
 
 export default function Sidebar({ onLocateTable }) {
     const { state } = useSchema();
-    const [expandedTables, setExpandedTables] = useState({});
-    const [searchTerm, setSearchTerm] = useState('');
-
-    const schemaStats = useMemo(() => ({
-        tableCount: state.tables.length,
-        columnCount: state.tables.reduce((total, table) => total + table.columns.length, 0),
-        relationshipCount: state.relationships.length,
-        indexCount: state.tables.reduce((total, table) => total + (table.indexes?.length || 0), 0),
-    }), [state.relationships.length, state.tables]);
-
-    const filteredTables = useMemo(() => {
-        const normalizedSearchTerm = searchTerm.trim().toLowerCase();
-        if (!normalizedSearchTerm) {
-            return state.tables;
-        }
-
-        return state.tables.filter((table) => (
-            table.name.toLowerCase().includes(normalizedSearchTerm)
-            || table.comment?.toLowerCase().includes(normalizedSearchTerm)
-            || table.columns.some((column) => column.name.toLowerCase().includes(normalizedSearchTerm) || column.comment?.toLowerCase().includes(normalizedSearchTerm))
-        ));
-    }, [searchTerm, state.tables]);
-
-    const toggleTable = (tableId) => {
-        setExpandedTables((prev) => ({
-            ...prev,
-            [tableId]: !prev[tableId],
-        }));
-    };
-
-    return (
-        <div className="sidebar-shell glass sidebar-industrial">
-            <div className="sidebar-top sidebar-top-industrial">
-                <span className="ui-kicker">Schema Index</span>
-                <h3 className="panel-heading" style={{ margin: '0.7rem 0 0.3rem', fontSize: '1rem' }}>数据表导航</h3>
-                <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.84rem', lineHeight: 1.6 }}>
-                    检索表、字段和关系，并快速定位到画布中的对应位置。
-                </p>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', marginTop: '12px' }}>
-                    {[
-                        { label: '表', value: schemaStats.tableCount },
-                        { label: '字段', value: schemaStats.columnCount },
-                        { label: '关系', value: schemaStats.relationshipCount },
-                        { label: '索引', value: schemaStats.indexCount },
-                    ].map((item) => (
-                        <div key={item.label} className="sidebar-stat-card">
-                            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{item.label}</div>
-                            <div style={{ fontSize: '1rem', color: 'var(--text-primary)', fontWeight: '700', marginTop: '2px' }}>{item.value}</div>
-                        </div>
-                    ))}
-                </div>
-
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '10px' }}>
-                    共 {filteredTables.length} / {state.tables.length} 张表
-                </div>
-
-                <input
-                    value={searchTerm}
-                    onChange={(event) => setSearchTerm(event.target.value)}
-                    placeholder="搜索表名、字段或中文注释"
-                    aria-label="搜索表或字段"
-                    className="ui-input"
-                    style={{ marginTop: '10px' }}
-                />
-            </div>
-
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0.6rem' }}>
-                {filteredTables.length === 0 ? (
-                    <div className="dashboard-empty" style={{ padding: '1.2rem' }}>
-                        {state.tables.length === 0 ? '暂无数据表' : '没有匹配的表或字段'}
-                    </div>
-                ) : (
-                    filteredTables.map((table) => (
-                        <div key={table.id} className="sidebar-table-card">
-                            <div
-                                className="sidebar-table-head"
-                                onClick={() => toggleTable(table.id)}
-                            >
-                                <span style={{ marginRight: '6px', fontSize: '12px', transform: expandedTables[table.id] ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
-                                    ▶
-                                </span>
-                                <span style={{ flex: 1, fontSize: '0.88rem', color: 'var(--text-primary)', fontWeight: '600' }}>
-                                    {table.name}{table.comment && <small style={{ display: 'block', color: 'var(--text-secondary)', fontWeight: 400 }}>{table.comment}</small>}
-                                </span>
-                                <span className="project-badge" style={{ marginRight: '0.35rem' }}>{table.columns.length}</span>
-                                <button
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        if (onLocateTable) {
-                                            onLocateTable(table.id);
-                                        }
-                                    }}
-                                    className="sidebar-locate-btn"
-                                    title="定位到此表"
-                                >
-                                    🎯
-                                </button>
-                            </div>
-
-                            {(expandedTables[table.id] || searchTerm.trim()) && (
-                                <div style={{ padding: '0.3rem 0.4rem 0.5rem 1.2rem' }}>
-                                    {table.columns
-                                        .filter((column) => {
-                                            const normalizedSearchTerm = searchTerm.trim().toLowerCase();
-                                            return !normalizedSearchTerm || table.name.toLowerCase().includes(normalizedSearchTerm) || table.comment?.toLowerCase().includes(normalizedSearchTerm) || column.name.toLowerCase().includes(normalizedSearchTerm) || column.comment?.toLowerCase().includes(normalizedSearchTerm);
-                                        })
-                                        .map((column) => {
-                                            const isFk = state.relationships.some((relationship) => relationship.fromTable === table.id && relationship.fromCol === column.id);
-                                            return (
-                                                <div key={column.id} className="sidebar-column-row">
-                                                    <span style={{ marginRight: '6px', fontSize: '12px' }}>
-                                                        {column.isPk ? '🔑' : (isFk ? '🔗' : '•')}
-                                                    </span>
-                                                    <span style={{ flex: 1, color: 'var(--text-primary)' }}>{column.name}{column.comment && <small style={{ display: 'block', color: 'var(--text-secondary)' }}>{column.comment}</small>}</span>
-                                                    <span style={{ fontSize: '0.74rem', color: 'var(--accent-secondary)', opacity: 0.8 }}>{column.type}</span>
-                                                </div>
-                                            );
-                                        })}
-                                </div>
-                            )}
-                        </div>
-                    ))
-                )}
-            </div>
-        </div>
-    );
+    const [expanded, setExpanded] = useState({});
+    const [search, setSearch] = useState('');
+    const query = search.trim().toLowerCase();
+    const matches = item => `${item.name} ${item.comment || ''}`.toLowerCase().includes(query);
+    const tables = state.tables.filter(table => !query || `${table.name} ${table.comment || ''}`.toLowerCase().includes(query) || table.columns.some(column => `${column.name} ${column.comment || ''}`.toLowerCase().includes(query)));
+    return <aside className="sidebar-shell"><div className="sidebar-top"><div className="sidebar-top-title"><h3>数据结构</h3><span>{state.tables.length} 张表</span></div><div className="sidebar-search"><Icon name="search" size={14} /><input className="ui-input" aria-label="搜索表或字段" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索表、字段或注释…" /></div></div><div className="sidebar-list">
+        {!tables.length ? <div className="dashboard-empty" style={{ border: 0, padding: '25px 8px' }}>{state.tables.length ? '没有匹配的表或字段' : '添加第一张表，开始设计'}</div> : tables.map(table => <div key={table.id} className="sidebar-table-card"><div className="sidebar-table-head" onClick={() => setExpanded(previous => ({ ...previous, [table.id]: !previous[table.id] }))}><Icon name={expanded[table.id] || query ? 'down' : 'chevron'} size={11} /><Icon name="table" size={14} className="table-symbol" /><div className="sidebar-table-name"><span>{table.name}</span>{table.comment && <small>{table.comment}</small>}</div><span className="sidebar-table-count">{table.columns.length}</span><button className="icon-button sidebar-locate-btn" title="定位到此表" onClick={event => { event.stopPropagation(); onLocateTable?.(table.id); }}><Icon name="locate" size={13} /></button></div>{(expanded[table.id] || query) && <div className="sidebar-fields">{table.columns.filter(column => !query || matches(table) || matches(column)).map(column => <div className="sidebar-column-row" key={column.id} title={column.comment || column.name}><Icon name={column.isPk ? 'key' : state.relationships.some(relation => relation.fromTable === table.id && relation.fromCol === column.id) ? 'link' : 'minus'} size={11} /><span>{column.name}</span><code>{column.type}</code></div>)}</div>}</div>)}
+    </div><div className="sidebar-footnote">点击展开字段 · 定位图标跳转至画布</div></aside>;
 }

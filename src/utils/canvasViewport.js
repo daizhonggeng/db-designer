@@ -1,6 +1,6 @@
 export function fitViewport(tables, bookmarks, width, height) {
     const boxes = [
-        ...tables.map(table => ({ x: table.position.x, y: table.position.y, width: table.width || 360, height: table.height || 330 })),
+        ...tables.map(table => ({ x: table.position.x, y: table.position.y, width: table.width || 320, height: table.height || 240 })),
         ...bookmarks,
     ];
     if (!boxes.length) return { zoom: 1, pan: { x: 0, y: 0 } };
