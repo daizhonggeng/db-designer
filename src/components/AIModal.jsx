@@ -135,14 +135,14 @@ export default function AIModal({ onClose }) {
                             <span className="ui-kicker">Output</span>
                             <h3 className="panel-heading" style={{ margin: '0.7rem 0 0.4rem', fontSize: '1.02rem' }}>结构草案已生成</h3>
                             <p style={{ margin: 0, color: 'var(--text-secondary)', lineHeight: 1.65 }}>
-                                可以直接追加到当前画布，也可以先阅读模型分析过程再决定是否应用。
+                                可以直接追加到当前画布，也可以先阅读设计说明再决定是否应用。
                             </p>
                         </section>
 
                         <section className="ui-card ai-panel-industrial">
                             <div style={{ marginBottom: '0.75rem' }}>
-                                <span className="ui-kicker">Reasoning</span>
-                                <h3 className="panel-heading" style={{ margin: '0.6rem 0 0', fontSize: '1.02rem' }}>模型分析过程</h3>
+                                <span className="ui-kicker">Design notes</span>
+                                <h3 className="panel-heading" style={{ margin: '0.6rem 0 0', fontSize: '1.02rem' }}>设计说明</h3>
                             </div>
                             <div className="ai-reasoning-box ai-reasoning-box-industrial">
                                 {result.reasoning}

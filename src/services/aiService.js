@@ -106,11 +106,11 @@ export async function generateSchema(description, imageBase64 = null, designPres
   const systemPrompt = `
 You are a database architect. Your task is to generate a database schema based on the user's description${isVision ? ' and the provided ER diagram/image' : ''}.
 
-1. First, analyze the requirements and explain your reasoning.
-2. Then, generate the JSON schema wrapped in \`\`\`json ... \`\`\` code blocks.
+Generate the JSON schema wrapped in \`\`\`json ... \`\`\` code blocks. Include a concise Simplified Chinese design_summary explaining the main table and relationship choices and any important assumptions. This is a user-facing design explanation, not internal reasoning.
 
 The JSON must strictly follow this structure:
 {
+  "design_summary": "简要说明表结构、关系和关键假设",
   "tables": [
     {
       "id": "unique_string_id",
@@ -190,7 +190,6 @@ ${designPreset.rules}
     if (!response.body) throw new Error('AI 服务没有返回可读取的数据流');
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
-    let reasoning = "";
     let content = "";
     let pending = "";
 
@@ -210,11 +209,6 @@ ${designPreset.rules}
             const data = JSON.parse(dataStr);
             const delta = data.choices[0].delta;
 
-            // Capture Reasoning
-            if (delta.reasoning_content) {
-              reasoning += delta.reasoning_content;
-            }
-
             // Capture Content
             if (delta.content) {
               content += delta.content;
@@ -232,9 +226,11 @@ ${designPreset.rules}
     let jsonContent = jsonMatch ? jsonMatch[1] : content;
     jsonContent = jsonContent.replace(/```/g, "").trim(); // Extra cleanup
 
+    const { design_summary: designSummary, ...schema } = JSON.parse(jsonContent);
+    const surroundingText = jsonMatch ? content.replace(jsonMatch[0], '').trim() : '';
     return {
-      reasoning: reasoning || "No reasoning provided by model.",
-      schema: JSON.parse(jsonContent)
+      reasoning: (typeof designSummary === 'string' && designSummary.trim()) || surroundingText || '模型未提供设计说明。',
+      schema
     };
 
   } catch (error) {

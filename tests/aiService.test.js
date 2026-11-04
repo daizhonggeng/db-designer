@@ -89,6 +89,21 @@ test('AI 设计正确拼接跨网络分块的 JSON 和中文字符', async (t) =
     assert.deepEqual((await generateSchema('客户管理', null, { rules: '使用 crm_ 前缀' })).schema, schema);
 });
 
+test('设计说明来自结构化输出，并兼容旧格式及缺少说明的响应', async (t) => {
+    const mock = t.mock.method(globalThis, 'fetch');
+    for (const [content, expected] of [
+        ['```json\n{"design_summary":"按客户和订单建表。","tables":[],"relationships":[]}\n```', '按客户和订单建表。'],
+        ['客户与订单是一对多关系。\n```json\n{"tables":[],"relationships":[]}\n```', '客户与订单是一对多关系。'],
+        ['{"tables":[],"relationships":[]}', '模型未提供设计说明。']
+    ]) {
+        const event = { choices: [{ delta: { content } }] };
+        mock.mock.mockImplementation(async () => new Response(`data: ${JSON.stringify(event)}\n\n`));
+        const result = await generateSchema('客户订单');
+        assert.equal(result.reasoning, expected);
+        assert.deepEqual(result.schema, { tables: [], relationships: [] });
+    }
+});
+
 test('浏览器保存的配置立即用于规范总结和设计请求', async (t) => {
     let stored = '';
     globalThis.localStorage = { getItem: () => stored, setItem: (_key, value) => { stored = value; } };
