@@ -1,0 +1,47 @@
+.pdm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(5px);
+}
+
+.pdm-modal {
+    width: 760px;
+    max-width: 100%;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-panel);
+    color: var(--text-primary);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+.pdm-header, .pdm-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 20px 24px;
+    flex-shrink: 0;
+}
+
+.pdm-header { border-bottom: 1px solid var(--glass-border); }
+.pdm-header h2 { margin: 0; font-size: 1.25rem; }
+.pdm-header p { margin: 6px 0 0; }
+.pdm-header p, .pdm-help { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.6; }
+.pdm-body { display: flex; flex-direction: column; gap: 12px; padding: 24px; overflow-y: auto; }
+.pdm-upload { display: flex; flex-direction: column; gap: 12px; }
+.pdm-upload input { max-width: 100%; }
+.pdm-error { color: #ef4444; }
+.pdm-summary { overflow-wrap: anywhere; }
+.pdm-preview { max-height: 300px; overflow: auto; border: 1px solid var(--glass-border); border-radius: 8px; }
+.pdm-preview table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.pdm-preview th, .pdm-preview td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--glass-border); overflow-wrap: anywhere; }
+.pdm-preview th { position: sticky; top: 0; background: var(--bg-panel); }
+.pdm-footer { justify-content: flex-end; border-top: 1px solid var(--glass-border); }

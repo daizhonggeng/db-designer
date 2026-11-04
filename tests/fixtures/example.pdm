@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?PowerDesigner AppLocale="UTF16" Objects="2" signature="PDM_DATA_MODEL_XML" version="16.5"?>
+<Model xmlns:a="attribute" xmlns:c="collection" xmlns:o="object">
+  <o:RootObject Id="root"><c:Children><o:Model Id="model">
+    <a:Name>示例模型</a:Name>
+    <c:Domains><o:PhysicalDomain Id="domain_name">
+      <a:DataType>varchar(%n)</a:DataType><a:Length>80</a:Length>
+    </o:PhysicalDomain></c:Domains>
+    <c:Tables><o:Table Id="users">
+      <a:Name>用户</a:Name><a:Code>users</a:Code><a:Comment>用户 &amp; 账号</a:Comment>
+      <c:Columns>
+        <o:Column Id="user_id"><a:Name>用户编号</a:Name><a:Code>id</a:Code><a:DataType>bigint</a:DataType></o:Column>
+        <o:Column Id="tenant_id"><a:Code>tenant_id</a:Code><a:DataType>int</a:DataType></o:Column>
+        <o:Column Id="user_name"><a:Name>姓名</a:Name><a:Code>name</a:Code><c:Domain><o:PhysicalDomain Ref="domain_name"/></c:Domain></o:Column>
+      </c:Columns>
+      <c:Keys>
+        <o:Key Id="users_pk"><c:Key.Columns><o:Column Ref="user_id"/><o:Column Ref="tenant_id"/></c:Key.Columns></o:Key>
+        <o:Key Id="users_uk"><c:Key.Columns><o:Column Ref="user_name"/></c:Key.Columns></o:Key>
+      </c:Keys>
+      <c:PrimaryKey><o:Key Ref="users_pk"/></c:PrimaryKey>
+    </o:Table></c:Tables>
+    <c:Packages><o:Package Id="package"><c:Tables><o:Table Id="orders">
+      <a:Name>订单</a:Name><a:Code>orders</a:Code>
+      <c:Columns>
+        <o:Column Id="order_id"><a:Code>id</a:Code><a:DataType>bigint</a:DataType></o:Column>
+        <o:Column Id="order_user_id"><a:Code>user_id</a:Code><a:DataType>bigint</a:DataType></o:Column>
+        <o:Column Id="order_tenant_id"><a:Code>tenant_id</a:Code><a:DataType>int</a:DataType></o:Column>
+        <o:Column Id="order_amount"><a:Code>amount</a:Code><a:DataType>decimal(%s,%p)</a:DataType><a:Length>18</a:Length><a:Precision>2</a:Precision><a:Comment><![CDATA[金额 < 10000]]></a:Comment></o:Column>
+      </c:Columns>
+      <c:Keys><o:Key Id="orders_pk"><c:Key.Columns><o:Column Ref="order_id"/></c:Key.Columns></o:Key></c:Keys>
+      <c:PrimaryKey><o:Key Ref="orders_pk"/></c:PrimaryKey>
+    </o:Table></c:Tables>
+    <c:References><o:Reference Id="orders_users">
+      <a:Code>fk_orders_users</a:Code>
+      <c:ParentTable><o:Table Ref="users"/></c:ParentTable>
+      <c:ChildTable><o:Table Ref="orders"/></c:ChildTable>
+      <c:Joins>
+        <o:ReferenceJoin Id="join1"><c:Object1><o:Column Ref="user_id"/></c:Object1><c:Object2><o:Column Ref="order_user_id"/></c:Object2></o:ReferenceJoin>
+        <o:ReferenceJoin Id="join2"><c:Object1><o:Column Ref="tenant_id"/></c:Object1><c:Object2><o:Column Ref="order_tenant_id"/></c:Object2></o:ReferenceJoin>
+      </c:Joins>
+    </o:Reference></c:References></o:Package></c:Packages>
+    <c:PhysicalDiagrams><o:PhysicalDiagram Id="diagram"><c:Symbols><o:TableSymbol Id="symbol"><c:Object><o:Table Ref="users"/></c:Object></o:TableSymbol></c:Symbols></o:PhysicalDiagram></c:PhysicalDiagrams>
+  </o:Model></c:Children></o:RootObject>
+</Model>

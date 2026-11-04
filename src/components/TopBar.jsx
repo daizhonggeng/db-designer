@@ -8,6 +8,7 @@ import ProjectPresetModal from './ProjectPresetModal';
 import VersionHistoryModal from './VersionHistoryModal';
 import ExportModal from './ExportModal';
 import ReverseEngineeringModal from './ReverseEngineeringModal';
+import PDMImportModal from './PDMImportModal';
 import Toast from './Toast';
 import * as htmlToImage from 'html-to-image';
 import { API_BASE_URL } from '../config';
@@ -23,6 +24,7 @@ export default function TopBar({ projectId }) {
     const [showHistory, setShowHistory] = useState(false);
     const [showExportModal, setShowExportModal] = useState(false);
     const [showRevEng, setShowRevEng] = useState(false);
+    const [showPDMImport, setShowPDMImport] = useState(false);
     const [saving, setSaving] = useState(false);
     const [showLayoutMenu, setShowLayoutMenu] = useState(false);
     const [showDbMenu, setShowDbMenu] = useState(false);
@@ -428,6 +430,9 @@ export default function TopBar({ projectId }) {
                 <button className="btn" onClick={() => setShowRevEng(true)} title="从数据库导入结构">
                     📥 逆向
                 </button>
+                <button className="btn" onClick={() => setShowPDMImport(true)} title="导入 PowerDesigner 物理模型">
+                    📥 导入 PDM
+                </button>
 
                 {/* 导出按钮组 */}
                 <div style={{ position: 'relative' }}>
@@ -494,6 +499,12 @@ export default function TopBar({ projectId }) {
             {showRevEng && (
                 <ReverseEngineeringModal
                     onClose={() => setShowRevEng(false)}
+                />
+            )}
+            {showPDMImport && (
+                <PDMImportModal
+                    onClose={() => setShowPDMImport(false)}
+                    onImported={message => setToast({ message, type: 'success' })}
                 />
             )}
 

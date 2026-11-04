@@ -27,6 +27,9 @@ Web 端数据库设计工具，支持 AI 辅助设计和数据库逆向工程。
         
         <img width="100%" alt="直连导入图" src="https://github.com/user-attachments/assets/6d1d655c-6ed7-416f-abb6-9bf018fd8621" />
 
+*   **PDM 导入**: 在设计页点击“导入 PDM”，选择 PowerDesigner 的 XML 格式 `.pdm` 文件（最大 20 MB），预览后追加到当前项目。支持模型包内的表、字段及类型、中文名称/注释、主键和外键字段关联，复合外键按字段对展示。文件在浏览器本地解析，支持 UTF-8、UTF-16 和 XML 声明指定的 GBK 等编码。
+    * 同名表也会追加，不覆盖已有内容；导入可撤销，点击“保存”后持久化。索引、视图和原始图形布局暂不导入；无法解析的字段类型、主外键引用会提示错误，修正后可重试。
+
 *   **版本管理**: 自动保存历史版本，支持回滚。
     
     <img width="100%" alt="版本管理图" src="https://github.com/user-attachments/assets/0f33d465-ce63-4bc5-8f65-345940b5d74e" />
