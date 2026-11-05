@@ -1,50 +1,22 @@
 
 import { apiGet, apiPut } from './api';
 
-const env = import.meta.env || {};
-const STORAGE_KEY = 'db-designer-ai-settings';
-
-function defaultAISettings() {
-  const defaults = {
-    apiKey: env.VITE_AI_API_KEY || '',
-    apiUrl: env.VITE_AI_API_URL || 'https://api.openai.com/v1',
-    modelText: env.VITE_AI_MODEL_TEXT || 'gpt-5.4',
-    modelVision: env.VITE_AI_MODEL_VISION || env.VITE_AI_MODEL_TEXT || 'gpt-5.4'
-  };
-  return defaults;
-}
-
-const PROFILES_KEY = 'db-designer-ai-profiles';
-
-export function getLegacyAIProfiles() {
-  try {
-    const saved = JSON.parse(globalThis.localStorage?.getItem(PROFILES_KEY) || 'null');
-    if (Array.isArray(saved) && saved.length) return saved;
-  } catch { /* Keep the existing configuration available. */ }
-  try {
-    const saved = globalThis.localStorage?.getItem(STORAGE_KEY);
-    return saved ? [{ id: 'default', name: '默认配置', settings: { ...defaultAISettings(), ...JSON.parse(saved) }, active: true }] : [];
-  } catch { return []; }
-}
-
 export async function getAIProfiles() {
-  return (await apiGet('/api/account/ai-profiles')) || [{ id: 'default', name: '默认配置', settings: defaultAISettings(), active: true }];
+  return (await apiGet('/api/account/ai-profiles')) || [];
 }
 
 export async function getAISettings() {
   const profiles = await getAIProfiles();
-  return profiles.find(profile => profile.active)?.settings || defaultAISettings();
+  const active = profiles.find(profile => profile.active);
+  if (!active) throw new Error('请先在 AI 配置中新增并启用配置。');
+  return active.settings;
 }
 
 export async function saveAIProfiles(profiles) {
-  const active = profiles.find(profile => profile.active);
-  if (!active) throw new Error('请选择一个全局默认配置。');
+  if (profiles.filter(profile => profile.active).length !== 1) {
+    throw new Error('请选择且只能选择一个生效配置。');
+  }
   await apiPut('/api/account/ai-profiles', profiles);
-}
-
-export function clearLegacyAIProfiles() {
-  globalThis.localStorage.removeItem(PROFILES_KEY);
-  globalThis.localStorage.removeItem(STORAGE_KEY);
 }
 
 function resolveChatCompletionsEndpoint(rawUrl) {
@@ -81,7 +53,7 @@ export async function summarizeSpecification(text, signal) {
   if (!text?.trim()) throw new Error('规范正文为空，无法总结。');
   if (text.length > 60000) throw new Error('规范正文超过 60,000 字符，请精简后重试。');
   const { apiKey: API_KEY, apiUrl, modelText: MODEL_TEXT } = await getAISettings();
-  if (!API_KEY) throw new Error('请先在 AI 配置中填写 API 密钥（VITE_AI_API_KEY）。');
+  if (!API_KEY) throw new Error('请在当前生效的 AI 配置中填写 API 密钥。');
   const API_ENDPOINT = resolveChatCompletionsEndpoint(apiUrl);
 
   const response = await fetch(API_ENDPOINT, {
@@ -124,7 +96,7 @@ export async function summarizeSpecification(text, signal) {
 
 export async function generateSchema(description, imageBase64 = null, designPreset = null) {
   const { apiKey: API_KEY, apiUrl, modelText: MODEL_TEXT, modelVision: MODEL_VISION } = await getAISettings();
-  if (!API_KEY) throw new Error('请先在 AI 配置中填写 API 密钥（VITE_AI_API_KEY）。');
+  if (!API_KEY) throw new Error('请在当前生效的 AI 配置中填写 API 密钥。');
   const API_ENDPOINT = resolveChatCompletionsEndpoint(apiUrl);
   const isVision = !!imageBase64;
   const MODEL_NAME = isVision ? MODEL_VISION : MODEL_TEXT;

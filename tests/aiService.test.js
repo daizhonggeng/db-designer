@@ -2,9 +2,20 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 
-const source = readFileSync(new URL('../src/services/aiService.js', import.meta.url), 'utf8').replace("import { apiGet, apiPut } from './api';", "const apiGet = async () => globalThis.testAIProfiles || null; const apiPut = async (_path, data) => { globalThis.testAIProfiles = data; };");
-const testConfig = { VITE_AI_API_KEY: 'test-only-key', VITE_AI_API_URL: 'https://example.test/v1' };
-const { generateSchema, summarizeSpecification } = await import(`data:text/javascript,${encodeURIComponent(source.replace('import.meta.env', JSON.stringify(testConfig)))}`);
+const configuredProfiles = [{ id: 'default', name: '账号配置', active: true, settings: { apiKey: 'test-only-key', apiUrl: 'https://example.test/v1', modelText: 'text-model', modelVision: 'vision-model' } }];
+const source = readFileSync(new URL('../src/services/aiService.js', import.meta.url), 'utf8').replace("import { apiGet, apiPut } from './api';", `const apiGet = async () => globalThis.testAIProfiles === undefined ? ${JSON.stringify(configuredProfiles)} : globalThis.testAIProfiles; const apiPut = async (_path, data) => { globalThis.testAIProfiles = data; };`);
+const { generateSchema, summarizeSpecification } = await import(`data:text/javascript,${encodeURIComponent(source)}`);
+
+test('未保存账号配置时显示空列表，不读取浏览器旧配置', async (t) => {
+    globalThis.testAIProfiles = null;
+    let localReads = 0;
+    globalThis.localStorage = { getItem: () => { localReads += 1; throw new Error('不应读取旧配置'); } };
+    t.after(() => { delete globalThis.testAIProfiles; delete globalThis.localStorage; });
+    const service = await import(`data:text/javascript,${encodeURIComponent(source)}`);
+    assert.deepEqual(await service.getAIProfiles(), []);
+    await assert.rejects(service.getAISettings(), /新增并启用/);
+    assert.equal(localReads, 0);
+});
 
 test('总结使用配置的文字接口并保留规范正文', async (t) => {
     const controller = new AbortController();
@@ -21,10 +32,12 @@ test('总结使用配置的文字接口并保留规范正文', async (t) => {
 });
 
 test('未配置凭据时不发送总结或设计请求', async (t) => {
-    const unconfigured = await import(`data:text/javascript,${encodeURIComponent(source.replace('import.meta.env', '{}'))}`);
+    globalThis.testAIProfiles = [];
+    t.after(() => { delete globalThis.testAIProfiles; });
+    const unconfigured = await import(`data:text/javascript,${encodeURIComponent(source)}`);
     const fetchMock = t.mock.method(globalThis, 'fetch', () => { throw new Error('不应请求'); });
-    await assert.rejects(unconfigured.generateSchema('客户管理'), /VITE_AI_API_KEY/);
-    await assert.rejects(unconfigured.summarizeSpecification('命名规范'), /VITE_AI_API_KEY/);
+    await assert.rejects(unconfigured.generateSchema('客户管理'), /新增并启用/);
+    await assert.rejects(unconfigured.summarizeSpecification('命名规范'), /新增并启用/);
     assert.equal(fetchMock.mock.callCount(), 0);
 });
 
@@ -121,24 +134,23 @@ test('账号保存的配置立即用于规范总结和设计请求', async (t) =
     assert.equal(calls[1].body.model, 'vision-model');
 });
 
-test('旧 AI 配置迁移为默认项并可切换全局配置', async (t) => {
-    const storage = new Map();
-    globalThis.localStorage = { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) };
-    t.after(() => { delete globalThis.localStorage; });
-    const service = await import(`data:text/javascript,${encodeURIComponent(source.replace('import.meta.env', JSON.stringify(testConfig)))}`);
-    storage.set('db-designer-ai-settings', JSON.stringify({ apiKey: 'existing', apiUrl: 'https://example.test/v1', modelText: 'old', modelVision: 'old' }));
-    t.after(() => { delete globalThis.testAIProfiles; });
-    const original = service.getLegacyAIProfiles()[0];
-    assert.equal(original.settings.apiKey, 'existing');
+test('账号配置只能单选生效，不读取浏览器旧配置', async (t) => {
+    let localReads = 0;
+    globalThis.localStorage = { getItem: () => { localReads += 1; return 'legacy'; } };
+    t.after(() => { delete globalThis.localStorage; delete globalThis.testAIProfiles; });
+    const service = await import(`data:text/javascript,${encodeURIComponent(source)}`);
+    const original = (await service.getAIProfiles())[0];
     const next = { id: 'second', name: '第二个', active: true, settings: { ...original.settings, modelText: 'new' } };
     await service.saveAIProfiles([{ ...original, active: false }, next]);
     assert.equal((await service.getAISettings()).modelText, 'new');
     assert.equal((await service.getAIProfiles()).length, 2);
-    await assert.rejects(service.saveAIProfiles([{ ...original, active: false }]), /全局默认/);
+    await assert.rejects(service.saveAIProfiles([{ ...original, active: false }]), /只能选择一个/);
+    await assert.rejects(service.saveAIProfiles([original, next]), /只能选择一个/);
+    assert.equal(localReads, 0);
 });
 
 test('测试配置使用当前填写的文字和图片模型并检查响应', async (t) => {
-    const { testAISettings } = await import(`data:text/javascript,${encodeURIComponent(source.replace('import.meta.env', JSON.stringify(testConfig)))}`);
+    const { testAISettings } = await import(`data:text/javascript,${encodeURIComponent(source)}`);
     const settings = { apiUrl: 'https://example.test/v1', apiKey: 'unsaved-key', modelText: 'text-model', modelVision: 'vision-model' };
     const requests = [];
     const mock = t.mock.method(globalThis, 'fetch', async (url, options) => {

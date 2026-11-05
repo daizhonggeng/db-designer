@@ -38,6 +38,7 @@ const paths = {
     locate: 'M12 2v4m0 12v4M2 12h4m12 0h4M19 12a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z',
     diff: 'M8 3H3v18h5M16 3h5v18h-5M8 9h8m-4-4v8M8 18h8',
     bookmark: 'M5 3h14v19l-7-5-7 5V3Z',
+    settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2',
     info: 'M12 11v6m0-10v.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z',
 };
 
