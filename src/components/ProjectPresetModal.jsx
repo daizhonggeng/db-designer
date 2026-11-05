@@ -67,7 +67,7 @@ export default function ProjectPresetModal({ initialPreset, creating = false, li
     };
 
     return createPortal(
-        <div className="modal-overlay preset-overlay" onClick={status === 'saving' ? undefined : onClose}>
+        <div className="modal-overlay preset-overlay">
             <form className="modal-content preset-modal" role="dialog" aria-modal="true" aria-labelledby="preset-title"
                 onClick={event => event.stopPropagation()} onSubmit={handleSave}>
                 <div className="preset-header">
@@ -117,7 +117,6 @@ export default function ProjectPresetModal({ initialPreset, creating = false, li
                 </div>
 
                 <div className="preset-footer">
-                    <button type="button" className="btn" onClick={onClose} disabled={status === 'saving'}>取消</button>
                     <button type="submit" className="btn btn-primary" disabled={busy || ((creating || library) && !name.trim()) || (library && !rules.trim())}>
                         {status === 'saving' ? '保存中…' : creating ? '创建项目' : '保存预设'}
                     </button>

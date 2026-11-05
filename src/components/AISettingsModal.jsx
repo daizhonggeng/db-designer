@@ -51,7 +51,7 @@ export default function AISettingsModal({ profile, isNew, onSave, onClose }) {
         }
     };
 
-    return <div className="modal-overlay" onClick={() => { if (!saving) onClose(); }}>
+    return <div className="modal-overlay">
         <form className="modal-content ai-settings-form" role="dialog" aria-modal="true" aria-labelledby="ai-settings-title" onClick={event => event.stopPropagation()} onSubmit={save}>
             <div className="modal-heading"><div><h2 id="ai-settings-title">{isNew ? '新增 AI 配置' : '编辑 AI 配置'}</h2><p>填写兼容 OpenAI 的接口和模型，保存后返回配置列表。</p></div><button type="button" className="icon-button" aria-label="关闭" disabled={saving} onClick={onClose}><Icon name="close" /></button></div>
             <label className="form-label">配置名称<input className="ui-input" aria-label="配置名称" autoFocus required maxLength={255} value={name} onChange={event => setName(event.target.value)} placeholder="例如：日常设计、图片识别" disabled={saving} /></label>
@@ -63,7 +63,7 @@ export default function AISettingsModal({ profile, isNew, onSave, onClose }) {
             <p className="ai-settings-note">连接测试会向服务发送简短请求，可能产生费用。</p>
             {testResult && <p role="status" className={testResult.ok ? 'ai-profiles-notice' : 'inline-error'}>{testResult.message}</p>}
             {error && <p className="inline-error" role="alert">{error}</p>}
-            <div className="modal-footer"><button type="button" className="btn" disabled={saving} onClick={onClose}>取消</button><button className="btn btn-primary" type="submit" disabled={saving || !!testing}>{saving ? '保存中…' : '保存配置'}</button></div>
+            <div className="modal-footer"><button className="btn btn-primary" type="submit" disabled={saving || !!testing}>{saving ? '保存中…' : '保存配置'}</button></div>
         </form>
     </div>;
 }
