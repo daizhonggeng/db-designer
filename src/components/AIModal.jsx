@@ -106,6 +106,8 @@ export default function AIModal({ projectId, onClose }) {
                 }))),
                 Promise.all(documents.map(readChatFile)),
             ]);
+            const total = [...images, ...attachments, ...loadedImages, ...loadedFiles].reduce((sum, item) => sum + item.dataUrl.length, 0);
+            if (total > 14000000) throw new Error('每条消息的图片和文件合计不能超过约 10 MB。');
             setImages(previous => [...previous, ...loadedImages]);
             setAttachments(previous => [...previous, ...loadedFiles]);
             setError('');
@@ -119,21 +121,21 @@ export default function AIModal({ projectId, onClose }) {
     };
     return <aside className="ai-chat" aria-label="AI 助手">
         <header className="ai-chat-header"><div><strong>AI 助手</strong><small>结合当前设计持续对话</small></div><button className="btn" onClick={clear} disabled={busy || loading || !loaded}>新建对话</button><button className="btn" aria-label="关闭 AI 助手" onClick={onClose}>×</button></header>
-        <div className="ai-chat-notice">发送时会将当前设计、项目规范和所选对话、图片和文件提取内容发送给当前 AI 服务；对话按项目和账号保存。</div>
+        <div className="ai-chat-notice">发送时会将当前设计、项目规范和所选对话、图片和原始文件发送给当前 AI 服务；对话按项目和账号保存。</div>
         <div className="ai-chat-history" aria-live="polite">
             {loading && <p>正在加载对话…</p>}
             {!loading && !messages.length && <p className="ai-chat-empty">描述想要的修改，也可以添加文件或图片。AI 会先给出方案，确认后应用。</p>}
-            {messages.map(message => <article key={message.id} className={`ai-chat-message ${message.role}`}><strong>{message.role === 'user' ? '你' : 'AI 助手'}</strong><div className="ai-chat-text">{message.text}</div>{message.images?.length > 0 && <div className="ai-chat-images">{message.images.map((image, index) => <img key={index} src={image.dataUrl} alt={image.name} />)}</div>}{message.attachments?.length > 0 && <div className="ai-chat-files">{message.attachments.map((file, index) => <span key={index}>📄 {file.name}</span>)}</div>}{message.proposal && <div className="ai-chat-proposal"><strong>建议修改</strong><ul>{(message.proposal.changes || []).map((change, index) => <li key={index}>{change}</li>)}</ul><button className="btn btn-primary" disabled={busy || message.applied} onClick={() => apply(message)}>{message.applied ? '已应用' : '应用修改'}</button><small>应用后可使用画布撤销。</small></div>}</article>)}
+            {messages.map(message => <article key={message.id} className={`ai-chat-message ${message.role}`}><strong>{message.role === 'user' ? '你' : 'AI 助手'}</strong><div className="ai-chat-text">{message.text}</div>{message.images?.length > 0 && <div className="ai-chat-images">{message.images.map((image, index) => <img key={index} src={image.dataUrl} alt={image.name} />)}</div>}{message.attachments?.length > 0 && <div className="ai-chat-files">{message.attachments.map((file, index) => <span key={index}>📄 {file.dataUrl ? <a href={file.dataUrl} download={file.name}>{file.name}</a> : `${file.name}（旧版附件，需重新上传）`}</span>)}</div>}{message.proposal && <div className="ai-chat-proposal"><strong>建议修改</strong><ul>{(message.proposal.changes || []).map((change, index) => <li key={index}>{change}</li>)}</ul><button className="btn btn-primary" disabled={busy || message.applied} onClick={() => apply(message)}>{message.applied ? '已应用' : '应用修改'}</button><small>应用后可使用画布撤销。</small></div>}</article>)}
             {busy && <p>AI 正在处理…</p>}{omitted > 0 && <p>本次请求因上下文长度省略了较早的 {omitted} 条消息。</p>}<div ref={bottom} />
         </div>
         {error && <div className="ai-chat-error" role="alert">{error}{!loaded && <button className="btn" onClick={() => setLoadAttempt(value => value + 1)}>重新加载</button>}{messages.at(-1)?.role === 'user' && !busy && <button className="btn" onClick={() => ask(messages)}>重试</button>}</div>}
         <div className="ai-chat-compose" onPaste={event => { const files = Array.from(event.clipboardData.files); if (files.length) { event.preventDefault(); addFiles(files); } }}>
             {images.length > 0 && <div className="ai-chat-images">{images.map((image, index) => <div key={index}><img src={image.dataUrl} alt={image.name} /><button aria-label={`移除${image.name}`} onClick={() => setImages(previous => previous.filter((_, i) => i !== index))}>×</button></div>)}</div>}
             {attachments.length > 0 && <div className="ai-chat-files">{attachments.map((file, index) => <span key={index}>📄 {file.name}<button aria-label={`移除${file.name}`} onClick={() => setAttachments(previous => previous.filter((_, i) => i !== index))}>×</button></span>)}</div>}
-            <small className="ai-chat-file-hint">支持 PDF、DOCX、TXT、MD、SQL、JSON、CSV、XML、PDM；最多 3 个文件，提取内容会发送给 AI。扫描 PDF 请先 OCR。</small>
+            <small className="ai-chat-file-hint">最多 3 个文件，单个最多 10 MB，图片和文件合计约 10 MB。原始文件将发送给 AI；支持的格式取决于服务和模型。</small>
             {reading && <small>正在读取文件…</small>}
             <textarea className="ui-textarea" value={text} maxLength={20000} onChange={event => setText(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); } }} placeholder="描述需求，Enter 发送，Shift+Enter 换行" />
-            <div className="ai-chat-actions"><input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif,.pdf,.docx,.txt,.md,.sql,.json,.csv,.xml,.pdm" multiple hidden onChange={event => { addFiles(event.target.files); event.target.value = ''; }} /><button className="btn" disabled={busy || reading} onClick={() => fileInput.current?.click()}>添加文件或图片</button><button className="btn btn-primary" disabled={busy || reading || loading || !loaded || (!text.trim() && !images.length && !attachments.length)} onClick={send}>发送</button></div>
+            <div className="ai-chat-actions"><input ref={fileInput} type="file" multiple hidden onChange={event => { addFiles(event.target.files); event.target.value = ''; }} /><button className="btn" disabled={busy || reading} onClick={() => fileInput.current?.click()}>添加文件或图片</button><button className="btn btn-primary" disabled={busy || reading || loading || !loaded || (!text.trim() && !images.length && !attachments.length)} onClick={send}>发送</button></div>
         </div>
     </aside>;
 }

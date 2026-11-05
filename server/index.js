@@ -19,7 +19,7 @@ const CORS_ORIGINS = (process.env.CORS_ORIGIN || '')
 app.use(cors({
     origin: CORS_ORIGINS.length > 0 ? CORS_ORIGINS : true,
 }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '16mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 function parsePositiveInt(value) {
@@ -563,9 +563,9 @@ app.post('/api/projects/:id/ai-messages', requireAuth, requireProjectAccess(fals
     );
     const validAttachments = Array.isArray(attachments) && attachments.length <= 3 && attachments.every(file =>
         file && typeof file.name === 'string' && file.name.length > 0 && file.name.length <= 255 &&
-        /\.(pdf|docx|txt|md|sql|json|csv|xml|pdm)$/i.test(file.name) &&
-        typeof file.text === 'string' && file.text.trim().length > 0 && file.text.length <= (/\.pdm$/i.test(file.name) ? 120000 : 60000)
-    );
+        typeof file.dataUrl === 'string' && file.dataUrl.length <= 13981100 &&
+        /^data:[a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+;base64,[a-zA-Z0-9+/]+={0,2}$/.test(file.dataUrl)
+    ) && [...images, ...attachments].reduce((size, item) => size + (typeof item?.dataUrl === 'string' ? item.dataUrl.length : 0), 0) <= 14000000;
     const validProposal = proposal === null || (
         role === 'assistant' && proposal && typeof proposal === 'object' && !Array.isArray(proposal) &&
         Array.isArray(proposal.operations) && proposal.operations.length > 0 && proposal.operations.length <= 500 &&

@@ -219,30 +219,41 @@ test('对话上下文按最近消息与图片容量限制，并明确报告省�
     assert.equal(selected.omitted, 4);
     assert.equal(selected.messages[0].text, '4');
     const images = [
-        { role: 'user', text: '旧图', images: [{ name: 'old.png', dataUrl: 'x'.repeat(5000000) }] },
+        { role: 'user', text: '旧图', images: [{ name: 'old.png', dataUrl: 'x'.repeat(8000000) }] },
         { role: 'assistant', text: '收到', images: [] },
-        { role: 'user', text: '新图', images: [{ name: 'new.png', dataUrl: 'x'.repeat(4000000) }] },
+        { role: 'user', text: '新图', images: [{ name: 'new.png', dataUrl: 'x'.repeat(7000000) }] },
     ];
     const limited = selectConversationContext(images);
     assert.equal(limited.omitted, 1);
     assert.equal(limited.messages.at(-1).text, '新图');
 });
 
-test('对话发送文件正文及文件名，历史消息中的文件也可用于后续轮次', async t => {
-    const messages = [{ role: 'user', text: '参考文件', attachments: [{ name: '设计.sql', text: 'CREATE TABLE users (id INT);' }], images: [] }, { role: 'assistant', text: '收到', images: [] }, { role: 'user', text: '继续修改', images: [] }];
-    t.mock.method(globalThis, 'fetch', async (_url, options) => {
+test('原生文件和图片以原始内容传给 Responses 接口，保留历史消息', async t => {
+    const dataUrl = 'data:application/pdf;base64,AAEC/w==';
+    const messages = [{ role: 'user', text: '参考文件', attachments: [{ name: '设计.pdf', dataUrl }], images: [{ name: '图.png', dataUrl: 'data:image/png;base64,AA==' }] }, { role: 'assistant', text: '收到', images: [] }, { role: 'user', text: '继续修改', images: [] }];
+    t.mock.method(globalThis, 'fetch', async (url, options) => {
+        assert.equal(url, 'https://example.test/v1/responses');
         const body = JSON.parse(options.body);
-        assert.match(body.messages[1].content, /设计.sql/);
-        assert.match(body.messages[1].content, /CREATE TABLE users/);
-        assert.equal(body.messages[3].content, '继续修改');
-        return Response.json({ choices: [{ message: { content: '{"message":"收到","operations":[]}' } }] });
+        assert.equal(body.model, 'vision-model');
+        const first = body.input.find(item => item.role === 'user');
+        assert.deepEqual(first.content.find(item => item.type === 'input_file'), { type: 'input_file', filename: '设计.pdf', file_data: dataUrl });
+        assert.equal(first.content.find(item => item.type === 'input_image').image_url, messages[0].images[0].dataUrl);
+        assert.match(JSON.stringify(body.input.at(-1)), /继续修改/);
+        return Response.json({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '{"message":"收到","operations":[]}' }] }] });
     });
     await generateConversationReply({ messages, schema: { tables: [], relationships: [] } });
 });
 
-test('限制上下文中文件正文总量并提示省略', () => {
-    const messages = Array.from({ length: 5 }, (_, i) => ({ role: 'user', text: String(i), attachments: [{ name: 'a.pdm', text: 'x'.repeat(120000) }] }));
+test('上下文合计限制原始文件和图片，超限时省略较早消息', () => {
+    const messages = Array.from({ length: 3 }, (_, i) => ({ role: 'user', text: String(i), attachments: [{ name: 'a.pdm', dataUrl: 'x'.repeat(7000000) }] }));
     const selected = selectConversationContext(messages);
     assert.equal(selected.omitted, 1);
-    assert.equal(selected.messages.length, 4);
+    assert.equal(selected.messages.length, 2);
+});
+
+test('服务不支持原生文件时清楚报错，不回退为文本', async t => {
+    let calls = 0;
+    t.mock.method(globalThis, 'fetch', async () => { calls++; return Response.json({ error: { message: 'unsupported file' } }, { status: 400 }); });
+    await assert.rejects(generateConversationReply({ messages: [{ role: 'user', text: '', attachments: [{ name: 'test.pdm', dataUrl: 'data:application/octet-stream;base64,AA==' }] }], schema: { tables: [], relationships: [] } }), /原生文件.*unsupported file/);
+    assert.equal(calls, 1);
 });

@@ -143,7 +143,7 @@ test('SQLite API persists projects, versions and collaboration', async t => {
             role: 'user',
             text: '参考图片增加订单表',
             images: [{ name: 'diagram.png', dataUrl: 'data:image/png;base64,AA==' }],
-            attachments: [{ name: '设计.sql', text: 'CREATE TABLE users (id INT);' }],
+            attachments: [{ name: '设计.sql', dataUrl: 'data:application/octet-stream;base64,AAEC/w==' }],
         };
         const assistantMessage = {
             id: 'chat-assistant-1',
@@ -157,9 +157,11 @@ test('SQLite API persists projects, versions and collaboration', async t => {
         await request('GET', path, undefined, undefined, 401);
         await request('GET', path, undefined, member, 403);
         await request('POST', path, { ...userMessage, images: [{ name: 'bad.svg', dataUrl: 'data:image/svg+xml;base64,AA==' }] }, owner, 400);
-        await request('POST', path, { ...userMessage, attachments: [{ name: 'bad.txt', text: 'x'.repeat(60001) }] }, owner, 400);
-        await request('POST', path, { ...userMessage, attachments: [{ name: 'bad.pdm', text: 'x'.repeat(120001) }] }, owner, 400);
-        await request('POST', path, { id: 'chat-pdm', role: 'user', text: '', attachments: [{ name: 'model.pdm', text: 'x'.repeat(112946) }] }, owner);
+        await request('POST', path, { ...userMessage, attachments: [{ name: 'bad.bin', dataUrl: 'data:application/octet-stream;base64,%%%'}] }, owner, 400);
+        const raw = Buffer.alloc(10 * 1024 * 1024, 165);
+        const large = { name: 'large.bin', dataUrl: `data:application/octet-stream;base64,${raw.toString('base64')}` };
+        const savedLarge = await request('POST', path, { id: 'large-file', role: 'user', text: '', attachments: [large] }, owner);
+        assert.equal(savedLarge.attachments[0].dataUrl, large.dataUrl);
         await request('DELETE', path, undefined, owner);
         await request('POST', path, { ...userMessage, role: 'assistant', attachments: userMessage.attachments }, owner, 400);
         await request('POST', path, userMessage, owner);
