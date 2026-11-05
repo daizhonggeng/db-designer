@@ -8,7 +8,7 @@ const normalizeColumn = (column) => {
     return {
         id: column?.id || uuidv4(),
         name: column?.name || 'new_column',
-        type: column?.type || 'VARCHAR(255)',
+        type: column?.type ?? 'VARCHAR(255)',
         isPk,
         nullable: typeof column?.nullable === 'boolean' ? column.nullable : !isPk,
         defaultValue: column?.defaultValue == null ? '' : String(column.defaultValue),

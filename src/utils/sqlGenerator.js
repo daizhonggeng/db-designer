@@ -244,6 +244,10 @@ function generateCommentStatements(table, dialect) {
 
 export function generateTableSQL(rawTable, dialect = 'mysql') {
     const table = normalizeTable(rawTable);
+    const missingType = table.columns.find(column => !column.type?.trim());
+    if (missingType) {
+        throw new Error(`表“${table.name}”的字段“${missingType.name}”缺少数据类型，请补全后导出 SQL。`);
+    }
     const context = buildTableContext(table);
 
     const definitions = [

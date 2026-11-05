@@ -39,6 +39,10 @@
 .pdm-upload { display: flex; flex-direction: column; gap: 12px; }
 .pdm-upload input { max-width: 100%; }
 .pdm-error { color: #ef4444; }
+.pdm-missing-types { padding: 12px 14px; border: 1px solid #d7a64e80; border-radius: 8px; background: #d7a64e12; font-size: 0.85rem; line-height: 1.65; }
+.pdm-missing-types p { margin: 4px 0; color: var(--text-secondary); }
+.pdm-missing-types summary { cursor: pointer; color: var(--text-primary); }
+.pdm-missing-types ul { max-height: 130px; overflow-y: auto; padding-left: 20px; margin-top: 6px; }
 .pdm-summary { overflow-wrap: anywhere; }
 .pdm-preview { max-height: 300px; overflow: auto; border: 1px solid var(--glass-border); border-radius: 8px; }
 .pdm-preview table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }

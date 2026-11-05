@@ -3,7 +3,7 @@ import {
     normalizeSchema,
     resolveColumnReference,
     resolveTableReference,
-} from './normalize';
+} from './normalize.js';
 
 function createIssueCollector() {
     const issues = [];
@@ -58,6 +58,17 @@ function validateColumns(table, pushIssue) {
         );
         return;
     }
+
+    table.columns.forEach(column => {
+        if (!column.type.trim()) {
+            pushIssue(
+                'error',
+                'MISSING_COLUMN_TYPE',
+                `表 "${table.name}" 的字段 "${column.name}" 缺少数据类型，请编辑补全后导出 SQL。`,
+                { tableId: table.id, columnIds: [column.id] }
+            );
+        }
+    });
 
     const columnNameMap = getLowerNameMap(table.columns, column => column.name);
     columnNameMap.forEach((items, nameKey) => {

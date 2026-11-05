@@ -136,6 +136,21 @@ test('SQLite API persists projects, versions and collaboration', async t => {
         assert.deepEqual(saved.schema_data, schema);
     });
 
+    await t.test('persisting an imported field without a type preserves the empty value', async () => {
+        const incomplete = {
+            ...schema,
+            tables: [{
+                ...schema.tables[0],
+                columns: [...schema.tables[0].columns, { id: 'untyped', name: 'pending_type', type: '' }],
+            }],
+        };
+        const saved = await request('PUT', `/api/projects/${project.id}`, { schema: incomplete }, owner);
+        assert.equal(saved.schema_data.tables[0].columns[1].type, '');
+        const loaded = await request('GET', `/api/projects/${project.id}`, undefined, owner);
+        assert.equal(loaded.schema_data.tables[0].columns[1].type, '');
+        await request('PUT', `/api/projects/${project.id}`, { schema }, owner);
+    });
+
     await t.test('version JSON, timestamp and description', async () => {
         version = await request('POST', `/api/projects/${project.id}/versions`, {
             schema, user: owner.username, description: '初始版本',

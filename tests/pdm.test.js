@@ -4,7 +4,9 @@ import { Buffer } from 'node:buffer';
 import { test } from 'node:test';
 import { DOMParser } from '@xmldom/xmldom';
 import { MAX_PDM_SIZE, parsePDM, readPDMFile } from '../src/utils/pdmParser.js';
-import { generateSchemaSQL } from '../src/utils/sqlGenerator.js';
+import { generateSchemaSQL, generateTableSQL } from '../src/utils/sqlGenerator.js';
+import { normalizeTableForEditor } from '../src/utils/tableEditor.js';
+import { validateSchema } from '../src/utils/schema/validateSchema.js';
 
 // 浏览器原生 DOMParser 会返回 parsererror；Node 测试环境将 XML 错误直接抛出。
 globalThis.DOMParser = class extends DOMParser {
@@ -74,15 +76,34 @@ test('拒绝空文件、非法 XML、错误模型、无表模型及实体声明'
     assert.throws(() => parsePDM('<!DOCTYPE Model>' + xml), /DTD/);
 });
 
-test('拒绝损坏的主外键、缺失类型和重复标识，不静默丢失结构', () => {
+test('拒绝损坏的主外键、缺少类型参数和重复标识，不静默丢失结构', () => {
     assert.throws(() => parsePDM(xml.replace('Ref="orders_pk"', 'Ref="missing"')), /主键引用无效/);
     assert.throws(() => parsePDM(xml.replace('Ref="user_id"', 'Ref="missing"')), /主键包含无效字段/);
     assert.throws(() => parsePDM(xml.replace('Ref="order_user_id"', 'Ref="missing"')), /无效的字段引用/);
     assert.throws(() => parsePDM(xml.replace('Ref="users"', 'Ref="missing"')), /关联.*不完整/);
-    assert.throws(() => parsePDM(xml.replace('<a:DataType>bigint</a:DataType>', '')), /缺少数据类型/);
     assert.throws(() => parsePDM(xml.replace('<a:Length>18</a:Length>', '')), /长度或精度/);
     assert.throws(() => parsePDM(xml.replace('Id="order_id"', 'Id="user_id"')), /重复的字段标识/);
     assert.throws(() => parsePDM(xml.replace('Id="orders"', 'Id="users"')), /重复的表标识/);
+});
+
+test('缺失类型或域不可解析时仍可导入，标记缺失并阻止生成错误 SQL', () => {
+    for (const source of [
+        xml.replace('<a:DataType>bigint</a:DataType>', ''),
+        xml.replace('Ref="domain_name"', 'Ref="missing_domain"'),
+    ]) {
+        const schema = parsePDM(source);
+        const column = schema.tables[0].columns.find(item => !item.type);
+        assert.ok(column);
+        assert.equal(column.type, '');
+        assert.equal(schema.tables.length, 2);
+        assert.equal(schema.relationships.length, 2);
+        assert.ok(validateSchema(schema).issues.some(issue => issue.code === 'MISSING_COLUMN_TYPE' && issue.columnIds.includes(column.id)));
+        assert.equal(normalizeTableForEditor(schema.tables[0]).columns.find(item => item.id === column.id).type, '');
+        assert.throws(() => generateTableSQL(schema.tables[0]), /缺少数据类型/);
+        assert.throws(() => generateSchemaSQL(schema), /缺少数据类型/);
+        column.type = 'VARCHAR(80)';
+        assert.doesNotThrow(() => generateSchemaSQL(schema));
+    }
 });
 
 test('读取 UTF-8、UTF-16 LE/BE 文件，接受大写扩展名', async () => {

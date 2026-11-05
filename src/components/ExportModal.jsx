@@ -4,7 +4,14 @@ import { generateSchemaSQL } from '../utils/sqlGenerator';
 
 export default function ExportModal({ onClose, schema }) {
     const { dbDialect } = useSettings();
-    const sql = useMemo(() => generateSchemaSQL(schema, dbDialect), [dbDialect, schema]);
+    const result = useMemo(() => {
+        try {
+            return { sql: generateSchemaSQL(schema, dbDialect), error: '' };
+        } catch (error) {
+            return { sql: '', error: error.message || '生成 SQL 失败' };
+        }
+    }, [dbDialect, schema]);
+    const { sql, error } = result;
     const dialectLabel = dbDialect === 'mysql' ? 'MySQL' : dbDialect === 'postgresql' ? 'PostgreSQL' : 'Oracle';
 
     const copyToClipboard = () => {
@@ -43,11 +50,12 @@ export default function ExportModal({ onClose, schema }) {
                     <span className="project-badge">{sql.split('\n').filter(Boolean).length} 行</span>
                 </div>
 
+                {error && <p className="inline-error" role="alert">{error}</p>}
                 <textarea value={sql} readOnly className="ui-textarea" style={{ minHeight: '360px' }} />
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
-                    <button className="btn" onClick={copyToClipboard}>📋 复制</button>
-                    <button className="btn btn-primary" onClick={downloadSQL}>💾 下载 .sql</button>
+                    <button className="btn" onClick={copyToClipboard} disabled={!!error}>📋 复制</button>
+                    <button className="btn btn-primary" onClick={downloadSQL} disabled={!!error}>💾 下载 .sql</button>
                 </div>
             </div>
         </div>

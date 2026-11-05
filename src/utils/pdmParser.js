@@ -25,7 +25,7 @@ function objectComment(node, name) {
 function columnType(node, domains) {
     const domain = domains.get(reference(node, 'Domain'));
     const type = attribute(node, 'DataType') || attribute(domain, 'DataType');
-    if (!type) throw new Error(`字段“${objectName(node)}”缺少数据类型，或引用了无法解析的域。`);
+    if (!type) return '';
 
     const length = attribute(node, 'Length') || attribute(domain, 'Length');
     const precision = attribute(node, 'Precision') || attribute(domain, 'Precision');

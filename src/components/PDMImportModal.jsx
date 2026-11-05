@@ -37,8 +37,10 @@ export default function PDMImportModal({ onClose, onImported }) {
     };
 
     const handleImport = () => {
+        const missingTypeCount = preview.schema.tables.reduce((total, table) =>
+            total + table.columns.filter(column => !column.type.trim()).length, 0);
         dispatch({ type: 'APPEND_SCHEMA', payload: preview.schema });
-        onImported(`已导入 ${preview.schema.tables.length} 张表、${preview.schema.relationships.length} 条字段关联，可撤销。请留意自动保存状态，或点击“保存版本”。`);
+        onImported(`已导入 ${preview.schema.tables.length} 张表、${preview.schema.relationships.length} 条字段关联。${missingTypeCount ? `${missingTypeCount} 个字段缺少类型，请在结构检查中查看。` : '可通过撤销恢复。'}`);
         onClose();
     };
 
@@ -67,6 +69,11 @@ export default function PDMImportModal({ onClose, onImported }) {
                             {preview.schema.tables.reduce((count, table) => count + table.columns.length, 0)} 个字段，
                             {preview.schema.relationships.length} 条字段关联
                         </p>
+                        {preview.schema.tables.some(table => table.columns.some(column => !column.type.trim())) && <div className="pdm-missing-types" role="status">
+                            <strong>{preview.schema.tables.reduce((total, table) => total + table.columns.filter(column => !column.type.trim()).length, 0)} 个字段未设置数据类型</strong>
+                            <p>这些字段仍会导入，类型暂时留空。请在导出 SQL 前，根据原始设计补全类型。</p>
+                            <details><summary>查看需要补全的字段</summary><ul>{preview.schema.tables.flatMap(table => table.columns.filter(column => !column.type.trim()).map(column => <li key={column.id}>{table.name} · {column.name}</li>))}</ul></details>
+                        </div>}
                         <div className="pdm-preview">
                             <table>
                                 <thead><tr><th>表名</th><th>注释</th><th>字段数</th></tr></thead>
