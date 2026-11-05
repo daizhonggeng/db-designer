@@ -524,6 +524,105 @@ app.put('/api/projects/requests/:requestId', requireAuth, async (req, res) => {
     }
 });
 
+function chatMessage(row) {
+    return {
+        id: row.id,
+        role: row.role,
+        text: row.text,
+        images: JSON.parse(row.images),
+        proposal: row.proposal ? JSON.parse(row.proposal) : null,
+        baseFingerprint: row.base_fingerprint,
+        applied: Boolean(row.applied),
+        createdAt: row.created_at,
+    };
+}
+
+app.get('/api/projects/:id/ai-messages', requireAuth, requireProjectAccess(false), (req, res) => {
+    try {
+        const result = db.query(
+            'SELECT * FROM ai_chat_messages WHERE project_id = $1 AND user_id = $2 ORDER BY seq',
+            [req.projectId, req.userId]
+        );
+        res.set('Cache-Control', 'no-store');
+        res.json(result.rows.map(chatMessage));
+    } catch (error) {
+        console.error('Load AI conversation failed:', error.message);
+        res.status(500).json({ error: '加载对话失败' });
+    }
+});
+
+app.post('/api/projects/:id/ai-messages', requireAuth, requireProjectAccess(false), (req, res) => {
+    const { id, role, text, images = [], proposal = null, baseFingerprint = null } = req.body;
+    const validId = typeof id === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(id);
+    const validText = typeof text === 'string' && text.length <= 20000;
+    const validImages = Array.isArray(images) && images.length <= 2 && images.every(image =>
+        image && typeof image.name === 'string' && image.name.length <= 255 &&
+        typeof image.dataUrl === 'string' && image.dataUrl.length <= 4200000 &&
+        /^data:image\/(?:png|jpeg|webp|gif);base64,[a-zA-Z0-9+/]+={0,2}$/.test(image.dataUrl)
+    );
+    const validProposal = proposal === null || (
+        role === 'assistant' && proposal && typeof proposal === 'object' && !Array.isArray(proposal) &&
+        Array.isArray(proposal.operations) && proposal.operations.length > 0 && proposal.operations.length <= 500 &&
+        JSON.stringify(proposal).length <= 1000000 && typeof baseFingerprint === 'string' && /^[a-f0-9]{64}$/.test(baseFingerprint)
+    );
+    if (!validId || !['user', 'assistant'].includes(role) || !validText || !validImages || !validProposal ||
+        (role === 'assistant' && images.length) || (!text.trim() && !images.length)) {
+        return res.status(400).json({ error: '对话内容格式或大小无效' });
+    }
+    try {
+        const message = db.transaction(() => {
+            const usage = db.query(
+                'SELECT COUNT(*) AS count, COALESCE(SUM(length(text) + length(images) + COALESCE(length(proposal), 0)), 0) AS size FROM ai_chat_messages WHERE project_id = $1 AND user_id = $2',
+                [req.projectId, req.userId]
+            ).rows[0];
+            if (usage.count >= 200 || usage.size + text.length + JSON.stringify(images).length + JSON.stringify(proposal).length > 30000000) {
+                return null;
+            }
+            return db.query(
+                `INSERT INTO ai_chat_messages (id, project_id, user_id, role, text, images, proposal, base_fingerprint)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+                [id, req.projectId, req.userId, role, text, JSON.stringify(images), proposal ? JSON.stringify(proposal) : null, baseFingerprint]
+            ).rows[0];
+        });
+        if (!message) return res.status(400).json({ error: '对话已达到容量上限，请新建对话后继续' });
+        res.set('Cache-Control', 'no-store');
+        return res.json(chatMessage(message));
+    } catch (error) {
+        if (error.errcode === 2067) return res.status(409).json({ error: '该消息已保存，请刷新对话' });
+        console.error('Save AI message failed:', error.message);
+        return res.status(500).json({ error: '保存消息失败' });
+    }
+});
+
+app.put('/api/projects/:id/ai-messages/:messageId', requireAuth, requireProjectAccess(false), (req, res) => {
+    if (req.body.applied !== true) return res.status(400).json({ error: '无效的消息状态' });
+    try {
+        const result = db.query(
+            `UPDATE ai_chat_messages SET applied = 1
+             WHERE project_id = $1 AND user_id = $2 AND id = $3 AND role = 'assistant' AND proposal IS NOT NULL
+             RETURNING *`,
+            [req.projectId, req.userId, req.params.messageId]
+        );
+        if (!result.rows.length) return res.status(404).json({ error: '修改方案不存在' });
+        res.set('Cache-Control', 'no-store');
+        return res.json(chatMessage(result.rows[0]));
+    } catch (error) {
+        console.error('Update AI message failed:', error.message);
+        return res.status(500).json({ error: '更新消息失败' });
+    }
+});
+
+app.delete('/api/projects/:id/ai-messages', requireAuth, requireProjectAccess(false), (req, res) => {
+    try {
+        db.query('DELETE FROM ai_chat_messages WHERE project_id = $1 AND user_id = $2', [req.projectId, req.userId]);
+        res.set('Cache-Control', 'no-store');
+        res.json({ ok: true });
+    } catch (error) {
+        console.error('Clear AI conversation failed:', error.message);
+        res.status(500).json({ error: '清除对话失败' });
+    }
+});
+
 app.get('/api/projects/:id/versions', requireAuth, requireProjectAccess(false), async (req, res) => {
     try {
         const result = await db.query(

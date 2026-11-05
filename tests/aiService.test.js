@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const configuredProfiles = [{ id: 'default', name: '账号配置', active: true, settings: { apiKey: 'test-only-key', apiUrl: 'https://example.test/v1', modelText: 'text-model', modelVision: 'vision-model' } }];
 const source = readFileSync(new URL('../src/services/aiService.js', import.meta.url), 'utf8').replace("import { apiGet, apiPut } from './api';", `const apiGet = async () => globalThis.testAIProfiles === undefined ? ${JSON.stringify(configuredProfiles)} : globalThis.testAIProfiles; const apiPut = async (_path, data) => { globalThis.testAIProfiles = data; };`);
-const { generateSchema, summarizeSpecification } = await import(`data:text/javascript,${encodeURIComponent(source)}`);
+const { generateSchema, summarizeSpecification, generateConversationReply, selectConversationContext } = await import(`data:text/javascript,${encodeURIComponent(source)}`);
 
 test('未保存账号配置时显示空列表，不读取浏览器旧配置', async (t) => {
     globalThis.testAIProfiles = null;
@@ -169,4 +169,61 @@ test('测试配置使用当前填写的文字和图片模型并检查响应', as
     mock.mock.mockImplementation(async () => Response.json({ choices: [] }));
     await assert.rejects(testAISettings(settings, 'text'), /未返回有效内容/);
     await assert.rejects(testAISettings({ ...settings, apiUrl: 'javascript:alert(1)' }, 'text'), /接口地址/);
+});
+
+test('对话请求携带当前设计、项目规范、历史消息与图片，并使用图片模型', async (t) => {
+    const image = { name: 'diagram.png', dataUrl: 'data:image/png;base64,AA==' };
+    const history = [
+        { role: 'user', text: '参考这个图设计订单', images: [image] },
+        { role: 'assistant', text: '建议添加订单表', proposal: { operations: [{ op: 'add_table', table: { name: 'orders', columns: [] } }] }, applied: false },
+        { role: 'user', text: '再添加状态字段', images: [] },
+    ];
+    const schema = { tables: [{ id: 't-user', name: 'users', columns: [{ id: 'c-id', name: 'id', type: 'INT' }] }], relationships: [], bookmarks: [], designPreset: { rules: '表名使用 crm_ 前缀' } };
+    const reply = { message: '我会补充状态字段。', operations: [{ op: 'add_column', table: 'users', column: { name: 'status', type: 'INT' } }] };
+    const controller = new AbortController();
+    let sent;
+    t.mock.method(globalThis, 'fetch', async (_url, options) => {
+        sent = JSON.parse(options.body);
+        assert.equal(options.signal, controller.signal);
+        const bytes = new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify(reply) } }] })}\n\ndata: [DONE]\n\n`);
+        return new Response(new ReadableStream({ start(stream) { for (let i = 0; i < bytes.length; i += 11) stream.enqueue(bytes.slice(i, i + 11)); stream.close(); } }));
+    });
+    const result = await generateConversationReply({ messages: history, schema, signal: controller.signal });
+    assert.equal(sent.model, 'vision-model');
+    assert.match(sent.messages[0].content, /crm_ 前缀/);
+    assert.match(sent.messages[0].content, /t-user/);
+    assert.equal(sent.messages[1].content[1].image_url.url, image.dataUrl);
+    assert.match(sent.messages[2].content, /未应用/);
+    assert.equal(sent.messages[3].content, '再添加状态字段');
+    assert.deepEqual(result.operations, reply.operations);
+    assert.equal(result.message, reply.message);
+});
+
+test('纯文字对话使用文字模型，格式错误与截断不会生成可应用方案', async (t) => {
+    const args = { messages: [{ role: 'user', text: '如何设计？', images: [] }], schema: { tables: [], relationships: [], bookmarks: [] } };
+    const mock = t.mock.method(globalThis, 'fetch', async (_url, options) => {
+        assert.equal(JSON.parse(options.body).model, 'text-model');
+        return new Response('data: {"choices":[{"delta":{"content":"{\\"message\\":\\"可以先建立用户表。\\",\\"operations\\":[]}"}}]}\n\ndata: [DONE]\n\n');
+    });
+    assert.deepEqual((await generateConversationReply(args)).operations, []);
+    mock.mock.mockImplementation(async () => new Response('data: {"choices":[{"delta":{"content":"{\\"message\\":"},"finish_reason":"length"}]}\n\n'));
+    await assert.rejects(generateConversationReply(args), /截断/);
+    mock.mock.mockImplementation(async () => new Response('data: {"choices":[{"delta":{"content":"{\\"message\\":\\"坏格式\\""}}]}\n\n'));
+    await assert.rejects(generateConversationReply(args), /格式/);
+});
+
+test('对话上下文按最近消息与图片容量限制，并明确报告省略数量', () => {
+    const messages = Array.from({ length: 16 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: String(i), images: [] }));
+    const selected = selectConversationContext(messages);
+    assert.equal(selected.messages.length, 12);
+    assert.equal(selected.omitted, 4);
+    assert.equal(selected.messages[0].text, '4');
+    const images = [
+        { role: 'user', text: '旧图', images: [{ name: 'old.png', dataUrl: 'x'.repeat(5000000) }] },
+        { role: 'assistant', text: '收到', images: [] },
+        { role: 'user', text: '新图', images: [{ name: 'new.png', dataUrl: 'x'.repeat(4000000) }] },
+    ];
+    const limited = selectConversationContext(images);
+    assert.equal(limited.omitted, 1);
+    assert.equal(limited.messages.at(-1).text, '新图');
 });

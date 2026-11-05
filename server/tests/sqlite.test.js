@@ -136,6 +136,41 @@ test('SQLite API persists projects, versions and collaboration', async t => {
         assert.deepEqual(saved.schema_data, schema);
     });
 
+    await t.test('AI conversations are persisted per project and per account', async () => {
+        const path = `/api/projects/${project.id}/ai-messages`;
+        const userMessage = {
+            id: 'chat-user-1',
+            role: 'user',
+            text: '参考图片增加订单表',
+            images: [{ name: 'diagram.png', dataUrl: 'data:image/png;base64,AA==' }],
+        };
+        const assistantMessage = {
+            id: 'chat-assistant-1',
+            role: 'assistant',
+            text: '建议增加订单表。',
+            images: [],
+            proposal: { operations: [{ op: 'add_table', table: { name: 'orders', columns: [] } }] },
+            baseFingerprint: 'a'.repeat(64),
+        };
+        assert.deepEqual(await request('GET', path, undefined, owner), []);
+        await request('GET', path, undefined, undefined, 401);
+        await request('GET', path, undefined, member, 403);
+        await request('POST', path, { ...userMessage, images: [{ name: 'bad.svg', dataUrl: 'data:image/svg+xml;base64,AA==' }] }, owner, 400);
+        await request('POST', path, userMessage, owner);
+        await request('POST', path, assistantMessage, owner);
+        await request('POST', path, userMessage, owner, 409);
+        const messages = await request('GET', path, undefined, owner);
+        assert.equal(messages.length, 2);
+        assert.equal(messages[0].images[0].name, 'diagram.png');
+        assert.equal(messages[1].proposal.operations[0].op, 'add_table');
+        assert.equal(messages[1].applied, false);
+        await request('PUT', `${path}/chat-assistant-1`, { applied: true }, owner);
+        assert.equal((await request('GET', path, undefined, owner))[1].applied, true);
+        await stop();
+        await start();
+        assert.equal((await request('GET', path, undefined, owner)).length, 2);
+    });
+
     await t.test('persisting an imported field without a type preserves the empty value', async () => {
         const incomplete = {
             ...schema,
@@ -207,6 +242,13 @@ test('SQLite API persists projects, versions and collaboration', async t => {
         const loaded = await request('GET', `/api/projects/${project.id}`, undefined, member);
         assert.deepEqual(loaded.schema_data, schema);
         await request('DELETE', `/api/projects/${project.id}`, undefined, member, 403);
+        const chat = `/api/projects/${project.id}/ai-messages`;
+        assert.deepEqual(await request('GET', chat, undefined, member), []);
+        await request('POST', chat, { id: 'member-message', role: 'user', text: '成员私有对话', images: [] }, member);
+        assert.equal((await request('GET', chat, undefined, owner)).length, 2);
+        await request('DELETE', chat, undefined, owner);
+        assert.equal((await request('GET', chat, undefined, owner)).length, 0);
+        assert.equal((await request('GET', chat, undefined, member)).length, 1);
     });
 
     await t.test('server restart preserves users, projects and versions', async () => {
@@ -230,7 +272,7 @@ test('SQLite API persists projects, versions and collaboration', async t => {
         const { DatabaseSync } = require('node:sqlite');
         const db = new DatabaseSync(databasePath);
         try {
-            for (const table of ['projects', 'project_members', 'project_requests', 'project_versions']) {
+            for (const table of ['projects', 'project_members', 'project_requests', 'project_versions', 'ai_chat_messages']) {
                 assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count, 0);
             }
             const user = db.prepare('SELECT password FROM users WHERE id = ?').get(owner.id);

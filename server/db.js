@@ -71,6 +71,21 @@ connection.exec(`
         description TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS ai_chat_messages (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+        text TEXT NOT NULL,
+        images TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(images)),
+        proposal TEXT CHECK (proposal IS NULL OR json_valid(proposal)),
+        base_fingerprint TEXT,
+        applied INTEGER NOT NULL DEFAULT 0 CHECK (applied IN (0, 1)),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(project_id, user_id, id)
+    );
+
     INSERT INTO project_members (project_id, user_id, role)
     SELECT id, user_id, 'owner' FROM projects WHERE user_id IS NOT NULL
     ON CONFLICT (project_id, user_id) DO NOTHING;

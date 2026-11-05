@@ -9,12 +9,14 @@ import TopBar from './TopBar';
 import Canvas from './Canvas';
 import Sidebar from './Sidebar';
 import Icon from './Icon';
+import AIModal from './AIModal';
 
 function ProjectWorkspace({ initialProject }) {
     const navigate = useNavigate();
     const { state, dispatch } = useSchema();
     const session = useProjectSession(initialProject, state);
     const canvasRef = useRef(null);
+    const [aiOpen, setAiOpen] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 650);
 
     const back = async () => {
@@ -24,7 +26,7 @@ function ProjectWorkspace({ initialProject }) {
 
     return (
         <div className="editor-shell">
-            <TopBar projectId={session.project.id} session={session} onBack={back} onToggleSidebar={() => setSidebarOpen(value => !value)} />
+            <TopBar projectId={session.project.id} session={session} onBack={back} onToggleSidebar={() => setSidebarOpen(value => !value)} onToggleAI={() => setAiOpen(true)} />
             {session.recovery && <div className="session-banner" role="status">
                 <div><strong>发现上次未保存的本机草稿</strong><span>恢复后会继续自动保存；也可以使用服务器上的版本。</span></div>
                 <div className="session-actions">
@@ -44,6 +46,7 @@ function ProjectWorkspace({ initialProject }) {
             <div className="canvas-stage">
                 {sidebarOpen && <Sidebar onLocateTable={id => canvasRef.current?.focusOnTable(id)} />}
                 <Canvas ref={canvasRef} />
+                {aiOpen && <AIModal projectId={session.project.id} onClose={() => setAiOpen(false)} />}
             </div>
             <footer className="editor-footer"><span><Icon name="database" size={11} />{state.tables.length} 张数据表 · {state.relationships.length} 条关系</span><span>双击表头编辑 · 拖动空白处移动画布</span></footer>
         </div>
