@@ -143,6 +143,7 @@ test('SQLite API persists projects, versions and collaboration', async t => {
             role: 'user',
             text: '参考图片增加订单表',
             images: [{ name: 'diagram.png', dataUrl: 'data:image/png;base64,AA==' }],
+            attachments: [{ name: '设计.sql', text: 'CREATE TABLE users (id INT);' }],
         };
         const assistantMessage = {
             id: 'chat-assistant-1',
@@ -156,19 +157,25 @@ test('SQLite API persists projects, versions and collaboration', async t => {
         await request('GET', path, undefined, undefined, 401);
         await request('GET', path, undefined, member, 403);
         await request('POST', path, { ...userMessage, images: [{ name: 'bad.svg', dataUrl: 'data:image/svg+xml;base64,AA==' }] }, owner, 400);
+        await request('POST', path, { ...userMessage, attachments: [{ name: 'bad.txt', text: 'x'.repeat(60001) }] }, owner, 400);
+        await request('POST', path, { ...userMessage, attachments: [{ name: 'bad.pdm', text: 'x'.repeat(120001) }] }, owner, 400);
+        await request('POST', path, { id: 'chat-pdm', role: 'user', text: '', attachments: [{ name: 'model.pdm', text: 'x'.repeat(112946) }] }, owner);
+        await request('DELETE', path, undefined, owner);
+        await request('POST', path, { ...userMessage, role: 'assistant', attachments: userMessage.attachments }, owner, 400);
         await request('POST', path, userMessage, owner);
         await request('POST', path, assistantMessage, owner);
         await request('POST', path, userMessage, owner, 409);
         const messages = await request('GET', path, undefined, owner);
         assert.equal(messages.length, 2);
         assert.equal(messages[0].images[0].name, 'diagram.png');
+        assert.deepEqual(messages[0].attachments, userMessage.attachments);
         assert.equal(messages[1].proposal.operations[0].op, 'add_table');
         assert.equal(messages[1].applied, false);
         await request('PUT', `${path}/chat-assistant-1`, { applied: true }, owner);
         assert.equal((await request('GET', path, undefined, owner))[1].applied, true);
         await stop();
         await start();
-        assert.equal((await request('GET', path, undefined, owner)).length, 2);
+        assert.deepEqual((await request('GET', path, undefined, owner))[0].attachments, userMessage.attachments);
     });
 
     await t.test('persisting an imported field without a type preserves the empty value', async () => {

@@ -227,3 +227,22 @@ test('对话上下文按最近消息与图片容量限制，并明确报告省�
     assert.equal(limited.omitted, 1);
     assert.equal(limited.messages.at(-1).text, '新图');
 });
+
+test('对话发送文件正文及文件名，历史消息中的文件也可用于后续轮次', async t => {
+    const messages = [{ role: 'user', text: '参考文件', attachments: [{ name: '设计.sql', text: 'CREATE TABLE users (id INT);' }], images: [] }, { role: 'assistant', text: '收到', images: [] }, { role: 'user', text: '继续修改', images: [] }];
+    t.mock.method(globalThis, 'fetch', async (_url, options) => {
+        const body = JSON.parse(options.body);
+        assert.match(body.messages[1].content, /设计.sql/);
+        assert.match(body.messages[1].content, /CREATE TABLE users/);
+        assert.equal(body.messages[3].content, '继续修改');
+        return Response.json({ choices: [{ message: { content: '{"message":"收到","operations":[]}' } }] });
+    });
+    await generateConversationReply({ messages, schema: { tables: [], relationships: [] } });
+});
+
+test('限制上下文中文件正文总量并提示省略', () => {
+    const messages = Array.from({ length: 5 }, (_, i) => ({ role: 'user', text: String(i), attachments: [{ name: 'a.pdm', text: 'x'.repeat(120000) }] }));
+    const selected = selectConversationContext(messages);
+    assert.equal(selected.omitted, 1);
+    assert.equal(selected.messages.length, 4);
+});

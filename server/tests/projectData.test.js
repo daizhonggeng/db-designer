@@ -61,6 +61,8 @@ test('opening an existing SQLite database preserves its users and projects', () 
     const old = new DatabaseSync(filename);
     old.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
         CREATE TABLE projects (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id), name TEXT NOT NULL, schema_data TEXT DEFAULT '{}', created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE ai_chat_messages (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL, project_id INTEGER NOT NULL, user_id INTEGER NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL, images TEXT NOT NULL DEFAULT '[]', proposal TEXT, base_fingerprint TEXT, applied INTEGER NOT NULL DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(project_id, user_id, id));
+        INSERT INTO ai_chat_messages (id, project_id, user_id, role, text) VALUES ('old-message', 8, 1, 'user', '原对话');
         INSERT INTO users (id, username, password) VALUES (1, 'migration-test', 'test-only-hash');
         INSERT INTO projects (id, user_id, name, schema_data) VALUES (8, 1, '原有项目', '{"tables":[],"relationships":[]}');`);
     old.close();
@@ -70,6 +72,9 @@ test('opening an existing SQLite database preserves its users and projects', () 
         try {
             const project = migrated.prepare('SELECT * FROM projects WHERE id = 8').get();
             assert.equal(project.name, '原有项目');
+            const chat = migrated.prepare('SELECT text, attachments FROM ai_chat_messages WHERE id = ?').get('old-message');
+            assert.equal(chat.text, '原对话');
+            assert.equal(chat.attachments, '[]');
             assert.equal(project.revision, 0);
             assert.equal(project.updated_at, project.created_at);
             assert.equal(migrated.prepare('SELECT COUNT(*) AS count FROM users').get().count, 1);

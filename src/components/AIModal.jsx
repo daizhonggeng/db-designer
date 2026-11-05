@@ -4,6 +4,7 @@ import { apiDelete, apiGet, apiPost, apiPut } from '../services/api';
 import { generateConversationReply, selectConversationContext } from '../services/aiService';
 import { applySchemaOperations, fingerprintSchema } from '../utils/aiOperations';
 import { projectSnapshot } from '../utils/projectData';
+import { readChatFile } from '../utils/chatFile';
 import { useSchema } from '../store/schemaStore';
 import './AIModal.css';
 
@@ -17,6 +18,8 @@ export default function AIModal({ projectId, onClose }) {
     const [messages, setMessages] = useState([]);
     const [text, setText] = useState('');
     const [images, setImages] = useState([]);
+    const [attachments, setAttachments] = useState([]);
+    const [reading, setReading] = useState(false);
     const [busy, setBusy] = useState(false);
     const [loading, setLoading] = useState(true);
     const [loaded, setLoaded] = useState(false);
@@ -55,16 +58,16 @@ export default function AIModal({ projectId, onClose }) {
         }
     };
     const send = async () => {
-        if (busy || loading || !loaded || (!text.trim() && !images.length)) return;
+        if (busy || reading || loading || !loaded || (!text.trim() && !images.length && !attachments.length)) return;
         setBusy(true);
         setError('');
         const abort = new AbortController();
         controller.current = abort;
         try {
-            const saved = await apiPost(path, { id: uuidv4(), role: 'user', text: text.trim(), images }, { signal: abort.signal });
+            const saved = await apiPost(path, { id: uuidv4(), role: 'user', text: text.trim(), images, attachments }, { signal: abort.signal });
             const history = [...messages, saved];
             setMessages(history);
-            setText(''); setImages([]);
+            setText(''); setImages([]); setAttachments([]);
             await ask(history, abort);
         } catch (err) { if (err.name !== 'AbortError') { setError(err.message); setBusy(false); } }
     };
@@ -85,17 +88,29 @@ export default function AIModal({ projectId, onClose }) {
     };
     const addFiles = async files => {
         const chosen = Array.from(files);
-        if (images.length + chosen.length > 2) { setError('每条消息最多添加两张图片。'); return; }
+        if (!chosen.length || reading) return;
+        const imageFiles = chosen.filter(file => file.type.startsWith('image/'));
+        const documents = chosen.filter(file => !file.type.startsWith('image/'));
+        if (images.length + imageFiles.length > 2 || attachments.length + documents.length > 3) {
+            setError('每条消息最多添加两张图片和三个文件。'); return;
+        }
+        setReading(true);
         try {
-            const loaded = await Promise.all(chosen.map(file => new Promise((resolve, reject) => {
-                if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type) || file.size > 3140000) { reject(new Error('图片须为 PNG、JPEG、WebP 或 GIF，单张不超过约 3 MB。')); return; }
-                const reader = new FileReader();
-                reader.onload = () => resolve({ name: (file.name || '粘贴的图片').slice(0, 255), dataUrl: reader.result });
-                reader.onerror = () => reject(new Error('读取图片失败'));
-                reader.readAsDataURL(file);
-            })));
-            setImages(previous => [...previous, ...loaded]); setError('');
+            const [loadedImages, loadedFiles] = await Promise.all([
+                Promise.all(imageFiles.map(file => new Promise((resolve, reject) => {
+                    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type) || file.size > 3140000) { reject(new Error('图片须为 PNG、JPEG、WebP 或 GIF，单张不超过约 3 MB。')); return; }
+                    const reader = new FileReader();
+                    reader.onload = () => resolve({ name: (file.name || '粘贴的图片').slice(0, 255), dataUrl: reader.result });
+                    reader.onerror = () => reject(new Error('读取图片失败'));
+                    reader.readAsDataURL(file);
+                }))),
+                Promise.all(documents.map(readChatFile)),
+            ]);
+            setImages(previous => [...previous, ...loadedImages]);
+            setAttachments(previous => [...previous, ...loadedFiles]);
+            setError('');
         } catch (err) { setError(err.message); }
+        finally { setReading(false); }
     };
     const clear = async () => {
         if (!window.confirm('新建对话将清除当前账号在此项目中的对话记录，继续吗？')) return;
@@ -104,18 +119,21 @@ export default function AIModal({ projectId, onClose }) {
     };
     return <aside className="ai-chat" aria-label="AI 助手">
         <header className="ai-chat-header"><div><strong>AI 助手</strong><small>结合当前设计持续对话</small></div><button className="btn" onClick={clear} disabled={busy || loading || !loaded}>新建对话</button><button className="btn" aria-label="关闭 AI 助手" onClick={onClose}>×</button></header>
-        <div className="ai-chat-notice">发送时会将当前设计、项目规范和所选对话及图片发送给当前 AI 服务；对话按项目和账号保存。</div>
+        <div className="ai-chat-notice">发送时会将当前设计、项目规范和所选对话、图片和文件提取内容发送给当前 AI 服务；对话按项目和账号保存。</div>
         <div className="ai-chat-history" aria-live="polite">
             {loading && <p>正在加载对话…</p>}
-            {!loading && !messages.length && <p className="ai-chat-empty">描述想要的修改，也可以添加或粘贴图片。AI 会先给出方案，确认后应用。</p>}
-            {messages.map(message => <article key={message.id} className={`ai-chat-message ${message.role}`}><strong>{message.role === 'user' ? '你' : 'AI 助手'}</strong><div className="ai-chat-text">{message.text}</div>{message.images?.length > 0 && <div className="ai-chat-images">{message.images.map((image, index) => <img key={index} src={image.dataUrl} alt={image.name} />)}</div>}{message.proposal && <div className="ai-chat-proposal"><strong>建议修改</strong><ul>{(message.proposal.changes || []).map((change, index) => <li key={index}>{change}</li>)}</ul><button className="btn btn-primary" disabled={busy || message.applied} onClick={() => apply(message)}>{message.applied ? '已应用' : '应用修改'}</button><small>应用后可使用画布撤销。</small></div>}</article>)}
+            {!loading && !messages.length && <p className="ai-chat-empty">描述想要的修改，也可以添加文件或图片。AI 会先给出方案，确认后应用。</p>}
+            {messages.map(message => <article key={message.id} className={`ai-chat-message ${message.role}`}><strong>{message.role === 'user' ? '你' : 'AI 助手'}</strong><div className="ai-chat-text">{message.text}</div>{message.images?.length > 0 && <div className="ai-chat-images">{message.images.map((image, index) => <img key={index} src={image.dataUrl} alt={image.name} />)}</div>}{message.attachments?.length > 0 && <div className="ai-chat-files">{message.attachments.map((file, index) => <span key={index}>📄 {file.name}</span>)}</div>}{message.proposal && <div className="ai-chat-proposal"><strong>建议修改</strong><ul>{(message.proposal.changes || []).map((change, index) => <li key={index}>{change}</li>)}</ul><button className="btn btn-primary" disabled={busy || message.applied} onClick={() => apply(message)}>{message.applied ? '已应用' : '应用修改'}</button><small>应用后可使用画布撤销。</small></div>}</article>)}
             {busy && <p>AI 正在处理…</p>}{omitted > 0 && <p>本次请求因上下文长度省略了较早的 {omitted} 条消息。</p>}<div ref={bottom} />
         </div>
         {error && <div className="ai-chat-error" role="alert">{error}{!loaded && <button className="btn" onClick={() => setLoadAttempt(value => value + 1)}>重新加载</button>}{messages.at(-1)?.role === 'user' && !busy && <button className="btn" onClick={() => ask(messages)}>重试</button>}</div>}
-        <div className="ai-chat-compose" onPaste={event => { const files = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); addFiles(files); } }}>
+        <div className="ai-chat-compose" onPaste={event => { const files = Array.from(event.clipboardData.files); if (files.length) { event.preventDefault(); addFiles(files); } }}>
             {images.length > 0 && <div className="ai-chat-images">{images.map((image, index) => <div key={index}><img src={image.dataUrl} alt={image.name} /><button aria-label={`移除${image.name}`} onClick={() => setImages(previous => previous.filter((_, i) => i !== index))}>×</button></div>)}</div>}
+            {attachments.length > 0 && <div className="ai-chat-files">{attachments.map((file, index) => <span key={index}>📄 {file.name}<button aria-label={`移除${file.name}`} onClick={() => setAttachments(previous => previous.filter((_, i) => i !== index))}>×</button></span>)}</div>}
+            <small className="ai-chat-file-hint">支持 PDF、DOCX、TXT、MD、SQL、JSON、CSV、XML、PDM；最多 3 个文件，提取内容会发送给 AI。扫描 PDF 请先 OCR。</small>
+            {reading && <small>正在读取文件…</small>}
             <textarea className="ui-textarea" value={text} maxLength={20000} onChange={event => setText(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); } }} placeholder="描述需求，Enter 发送，Shift+Enter 换行" />
-            <div className="ai-chat-actions"><input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={event => { addFiles(event.target.files); event.target.value = ''; }} /><button className="btn" disabled={busy} onClick={() => fileInput.current?.click()}>添加图片</button><button className="btn btn-primary" disabled={busy || loading || !loaded || (!text.trim() && !images.length)} onClick={send}>发送</button></div>
+            <div className="ai-chat-actions"><input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif,.pdf,.docx,.txt,.md,.sql,.json,.csv,.xml,.pdm" multiple hidden onChange={event => { addFiles(event.target.files); event.target.value = ''; }} /><button className="btn" disabled={busy || reading} onClick={() => fileInput.current?.click()}>添加文件或图片</button><button className="btn btn-primary" disabled={busy || reading || loading || !loaded || (!text.trim() && !images.length && !attachments.length)} onClick={send}>发送</button></div>
         </div>
     </aside>;
 }

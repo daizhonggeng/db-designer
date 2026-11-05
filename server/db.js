@@ -79,6 +79,7 @@ connection.exec(`
         role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
         text TEXT NOT NULL,
         images TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(images)),
+        attachments TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(attachments)),
         proposal TEXT CHECK (proposal IS NULL OR json_valid(proposal)),
         base_fingerprint TEXT,
         applied INTEGER NOT NULL DEFAULT 0 CHECK (applied IN (0, 1)),
@@ -99,6 +100,11 @@ if (!projectColumns.some(column => column.name === 'updated_at')) {
 }
 if (!projectColumns.some(column => column.name === 'revision')) {
     connection.exec('ALTER TABLE projects ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
+}
+
+const chatColumns = connection.prepare('PRAGMA table_info(ai_chat_messages)').all();
+if (!chatColumns.some(column => column.name === 'attachments')) {
+    connection.exec("ALTER TABLE ai_chat_messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(attachments))");
 }
 
 function query(sql, params = []) {
